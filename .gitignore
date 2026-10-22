@@ -1,0 +1,14 @@
+# Frontend generated files
+frontend/node_modules/
+frontend/.next/
+frontend/.env
+frontend/.env.local
+
+# Environment and secrets
+.env
+.env.local
+
+# Dependencies and build output
+node_modules/
+dist/
+build/

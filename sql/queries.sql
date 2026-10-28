@@ -62,3 +62,22 @@ SELECT sample_id, storage_id
 FROM public.sample_storage
 WHERE sample_id = 2 AND storage_id = 1;
 ROLLBACK;
+
+-- 9. Advanced SQL: reusable view for sample inventory
+CREATE OR REPLACE VIEW public.sample_inventory_view AS
+SELECT
+    s.sample_id,
+    d.full_name AS donor_name,
+    st.sample_type_name,
+    s.collection_date,
+    s.status
+FROM public.sample AS s
+JOIN public.donor AS d
+    ON d.donor_id = s.donor_id
+JOIN public.sample_type AS st
+    ON st.sample_type_id = s.sample_type_id;
+
+-- Demonstrate the view
+SELECT *
+FROM public.sample_inventory_view
+ORDER BY sample_id;

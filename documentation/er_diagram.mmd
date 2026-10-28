@@ -1,0 +1,153 @@
+
+erDiagram
+    DONOR ||--o{ CONSENT : gives
+    DONOR ||--o{ SAMPLE : provides
+    SAMPLE_TYPE ||--o{ SAMPLE : classifies
+    RESEARCHER ||--o{ PROCESS : performs
+    RESEARCHER ||--o{ EXPERIMENT : leads
+    PROCESS ||--o{ SAMPLE_PROCESS : records
+    SAMPLE ||--o{ SAMPLE_PROCESS : input_sample
+    SAMPLE ||--o{ SAMPLE_PROCESS : output_sample
+    SAMPLE ||--o{ SAMPLE_LINEAGE : parent_sample
+    SAMPLE ||--o{ SAMPLE_LINEAGE : child_sample
+    SAMPLE ||--o{ SAMPLE_STORAGE : stored_in
+    STORAGE_UNIT ||--o{ SAMPLE_STORAGE : contains
+    EXPERIMENT ||--o{ EXPERIMENT_SAMPLE : includes
+    SAMPLE ||--o{ EXPERIMENT_SAMPLE : participates
+    SAMPLE ||--o{ SEQUENCING_RESULT : has
+    EXPERIMENT o|--o{ SEQUENCING_RESULT : produces
+    ROLE ||--o{ APP_USER : assigned
+    RESEARCHER o|--o{ APP_USER : linked_to
+    APP_USER o|--o{ AUDIT_LOG : generates
+
+    DONOR {
+        bigint donor_id PK
+        varchar full_name
+        date date_of_birth
+        varchar gender
+        varchar phone_number
+        varchar email
+        text address
+        date registration_date
+    }
+    CONSENT {
+        bigint consent_id PK
+        bigint donor_id FK
+        varchar consent_type
+        date consent_date
+        date expiry_date
+        varchar status
+        text description
+    }
+    SAMPLE {
+        bigint sample_id PK
+        bigint donor_id FK
+        bigint sample_type_id FK
+        date collection_date
+        varchar collection_location
+        varchar status
+        text description
+    }
+    SAMPLE_TYPE {
+        bigint sample_type_id PK
+        varchar sample_type_name
+        text description
+    }
+    RESEARCHER {
+        bigint researcher_id PK
+        varchar full_name
+        varchar department
+        varchar role
+        varchar email
+        varchar phone
+    }
+    PROCESS {
+        bigint process_id PK
+        varchar process_type
+        date process_date
+        bigint performed_by FK
+        text description
+    }
+    SAMPLE_PROCESS {
+        bigint sample_process_id PK
+        bigint process_id FK
+        bigint input_sample_id FK
+        bigint output_sample_id FK
+        numeric quantity
+        varchar unit
+    }
+    SAMPLE_LINEAGE {
+        bigint lineage_id PK
+        bigint parent_sample_id FK
+        bigint child_sample_id FK
+        varchar relationship_type
+        timestamp created_at
+        text notes
+    }
+    STORAGE_UNIT {
+        bigint storage_id PK
+        varchar freezer_id
+        varchar rack_no
+        varchar box_no
+        varchar position
+        numeric temperature
+        varchar status
+    }
+    SAMPLE_STORAGE {
+        bigint sample_storage_id PK
+        bigint sample_id FK
+        bigint storage_id FK
+        date stored_date
+        date removed_date
+    }
+    EXPERIMENT {
+        bigint experiment_id PK
+        varchar experiment_name
+        varchar experiment_type
+        date start_date
+        date end_date
+        bigint researcher_id FK
+        varchar status
+        text description
+    }
+    EXPERIMENT_SAMPLE {
+        bigint experiment_sample_id PK
+        bigint experiment_id FK
+        bigint sample_id FK
+        date date_added
+        text notes
+    }
+    SEQUENCING_RESULT {
+        bigint sequencing_result_id PK
+        bigint sample_id FK
+        bigint experiment_id FK
+        varchar sequencing_platform
+        date run_date
+        text file_path
+        varchar result_status
+        text notes
+    }
+    ROLE {
+        bigint role_id PK
+        varchar role_name
+        text description
+    }
+    APP_USER {
+        bigint user_id PK
+        varchar username
+        varchar email
+        text password_hash
+        bigint role_id FK
+        bigint researcher_id FK
+        boolean is_active
+        timestamp created_at
+    }
+    AUDIT_LOG {
+        bigint audit_id PK
+        bigint user_id FK
+        varchar action
+        varchar table_name
+        bigint record_id
+        timestamp action_timestamp
+        text details
+    }

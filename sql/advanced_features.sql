@@ -22,3 +22,9 @@ CREATE OR REPLACE TRIGGER sample_update_audit_trigger
 AFTER UPDATE ON public.sample
 FOR EACH ROW
 EXECUTE FUNCTION public.log_sample_update();
+
+-- Advanced Concept 4: Indexing
+-- Helps PostgreSQL find samples belonging to a donor efficiently.
+
+CREATE INDEX IF NOT EXISTS idx_sample_donor_id
+ON public.sample (donor_id);

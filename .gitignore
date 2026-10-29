@@ -12,3 +12,6 @@ frontend/.env.local
 node_modules/
 dist/
 build/
+
+# TypeScript generated cache
+frontend/tsconfig.tsbuildinfo

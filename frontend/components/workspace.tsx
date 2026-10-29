@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Activity, Boxes, ClipboardList, Dna, FlaskConical, GitBranch, LayoutDashboard, Menu, Microscope, ShieldCheck, Users, X } from "lucide-react";
 import { useDemoData } from "@/components/demo-data-provider";
-import { Badge, Modal, Notice, PageHeading, Panel, useToast } from "@/components/ui";
+import { Badge, Notice, PageHeading, Panel, useToast } from "@/components/ui";
 import { Dashboard } from "@/components/workspace-dashboard";
 import { DonorForm, ExperimentForm, ProcessingForm, SampleForm } from "@/components/workspace-forms";
 import { LineageExplorer } from "@/components/workspace-lineage";

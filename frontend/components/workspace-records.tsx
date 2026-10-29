@@ -75,14 +75,86 @@ function RecordTable({ section, items, data, onSelect }: { section: Section; ite
   return <table><thead><tr><th>Timestamp</th><th>Action</th><th>Actor</th></tr></thead><tbody>{data.activity.filter((item) => (items as typeof data.activity).some((entry) => entry.id === item.id)).map((item) => <tr key={item.id}><td>{new Date(item.timestamp).toLocaleString()}</td><td>{item.action}</td><td>{item.actor}</td></tr>)}</tbody></table>;
 }
 
+
 function Detail({ section, record }: { section: Section; record: RecordItem }) {
   const { data } = useDemoData();
-  const entries: [string, string][] = section === "donors" && "codedId" in record
-    ? [["Donor ID", record.id], ["Coded identifier", record.codedId], ["Consent", record.consentStatus], ["Registration date", record.registeredAt], ["Cohort", record.cohort], ["Age band", record.ageBand]]
-    : section === "samples" && "donorId" in record
-      ? [["Sample ID", record.id], ["Donor ID", record.donorId], ["Sample type", record.type], ["Collection", record.collectionDate], ["Status", record.status], ["Storage unit", record.storageUnitId], ["Lineage", record.lineageAvailable ? "Recorded" : "No relationship recorded"], ["Processing", data.processing.filter((event) => event.inputSampleIds.includes(record.id) || event.outputSampleIds.includes(record.id)).map((event) => event.id).join(", ") || "None"], ["Experiments", data.experiments.filter((experiment) => experiment.sampleIds.includes(record.id)).map((experiment) => experiment.id).join(", ") || "None"], ["Sequencing results", data.results.filter((result) => result.sampleId === record.id).map((result) => result.id).join(", ") || "None"]]
-      : "processType" in record
-        ? [["Event ID", record.id], ["Process type", record.processType], ["Date", record.date], ["Researcher", record.researcher], ["Input samples", record.inputSampleIds.join(", ")], ["Output samples", record.outputSampleIds.join(", ")]]
-        : [["Experiment ID", record.id], ["Type", record.type], ["Researcher", record.researcher], ["Dates", `${record.startDate} to ${record.endDate}`], ["Associated samples", record.sampleIds.join(", ")], ["Status", record.status]];
-  return <div>{entries.map(([label, value]) => <div key={label} className="detail-block"><div className="detail-label">{label}</div><div className="detail-value">{value || "None"}</div></div>)}</div>;
+
+  let entries: [string, string][];
+
+  if (section === "donors" && "codedId" in record) {
+    entries = [
+      ["Donor ID", record.id],
+      ["Coded identifier", record.codedId],
+      ["Consent", record.consentStatus],
+      ["Registration date", record.registeredAt],
+      ["Cohort", record.cohort],
+      ["Age band", record.ageBand],
+    ];
+  } else if (section === "samples" && "donorId" in record) {
+    entries = [
+      ["Sample ID", record.id],
+      ["Donor ID", record.donorId],
+      ["Sample type", record.type],
+      ["Collection", record.collectionDate],
+      ["Status", record.status],
+      ["Storage unit", record.storageUnitId],
+      ["Lineage", record.lineageAvailable ? "Recorded" : "No relationship recorded"],
+      [
+        "Processing",
+        data.processing
+          .filter(
+            (event) =>
+              event.inputSampleIds.includes(record.id) ||
+              event.outputSampleIds.includes(record.id)
+          )
+          .map((event) => event.id)
+          .join(", ") || "None",
+      ],
+      [
+        "Experiments",
+        data.experiments
+          .filter((experiment) => experiment.sampleIds.includes(record.id))
+          .map((experiment) => experiment.id)
+          .join(", ") || "None",
+      ],
+      [
+        "Sequencing results",
+        data.results
+          .filter((result) => result.sampleId === record.id)
+          .map((result) => result.id)
+          .join(", ") || "None",
+      ],
+    ];
+  } else if ("processType" in record) {
+    entries = [
+      ["Event ID", record.id],
+      ["Process type", record.processType],
+      ["Date", record.date],
+      ["Researcher", record.researcher],
+      ["Input samples", record.inputSampleIds.join(", ")],
+      ["Output samples", record.outputSampleIds.join(", ")],
+    ];
+  } else if (section === "experiments" && "sampleIds" in record) {
+    entries = [
+      ["Experiment ID", record.id],
+      ["Type", record.type],
+      ["Researcher", record.researcher],
+      ["Dates", `${record.startDate} to ${record.endDate}`],
+      ["Associated samples", record.sampleIds.join(", ")],
+      ["Status", record.status],
+    ];
+  } else {
+    entries = [["Record ID", record.id], ["Details", "No additional details available."]];
+  }
+
+  return (
+    <div>
+      {entries.map(([label, value]) => (
+        <div key={label} className="detail-block">
+          <div className="detail-label">{label}</div>
+          <div className="detail-value">{value || "None"}</div>
+        </div>
+      ))}
+    </div>
+  );
 }

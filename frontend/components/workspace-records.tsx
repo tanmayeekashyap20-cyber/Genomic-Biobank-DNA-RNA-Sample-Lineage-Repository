@@ -1,10 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus, Search } from "lucide-react";
 import { useDemoData } from "@/components/demo-data-provider";
 import { Badge, EmptyState, Notice, PageHeading, Panel } from "@/components/ui";
-import type { Donor, Experiment, ProcessingEvent, Sample } from "@/lib/types";
+import type {
+  DatabaseSample,
+  Donor,
+  Experiment,
+  ProcessingEvent,
+  Sample,
+} from "@/lib/types";
 
 type Section = "donors" | "samples" | "processing" | "experiments" | "sequencing" | "storage" | "audit";
 
@@ -12,20 +18,81 @@ export function RecordsPage({ section, onAdd, onEditDonor }: { section: string; 
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("All");
   const [sortKey, setSortKey] = useState("id");
-  const [selected, setSelected] = useState<Donor | Sample | ProcessingEvent | Experiment | null>(null);
+  const [selected, setSelected] = useState<Donor | Sample | DatabaseSample | ProcessingEvent | Experiment | null>(null);
+  const [databaseSamples, setDatabaseSamples] = useState<DatabaseSample[]>([]);
+  const [samplesLoading, setSamplesLoading] = useState(false);
+  const [samplesError, setSamplesError] = useState("");
   const { data } = useDemoData();
-  const safeSection = (section in headings ? section : "samples") as Section;
-  const heading = headings[safeSection];
+
+ const safeSection = (section in headings ? section : "samples") as Section;
+ const heading = headings[safeSection];
+
+useEffect(() => {
+  if (safeSection !== "samples") return;
+
+  let cancelled = false;
+
+  async function loadSamples() {
+    setSamplesLoading(true);
+    setSamplesError("");
+
+    try {
+      const response = await fetch("/api/samples");
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Could not load samples.");
+      }
+
+      if (!cancelled) {
+  setDatabaseSamples(result.samples as DatabaseSample[]);
+  console.log("PostgreSQL samples loaded:", result.samples.length);
+}
+    } catch {
+      if (!cancelled) {
+        setSamplesError("Could not load samples from PostgreSQL. Please check the API.");
+      }
+    } finally {
+      if (!cancelled) setSamplesLoading(false);
+    }
+  }
+
+  void loadSamples();
+
+  return () => {
+    cancelled = true;
+  };
+}, [safeSection]);
+  
   const filtered = useMemo(() => {
     const needle = query.toLowerCase();
     if (safeSection === "donors") return data.donors.filter((item) => `${item.id} ${item.codedId} ${item.cohort} ${item.consentStatus}`.toLowerCase().includes(needle) && (filter === "All" || item.consentStatus === filter));
-    if (safeSection === "samples") return data.samples.filter((item) => `${item.id} ${item.donorId} ${item.type} ${item.status} ${item.storageUnitId}`.toLowerCase().includes(needle) && (filter === "All" || item.status === filter || item.type === filter));
+    if (safeSection === "samples") {
+  return databaseSamples.filter((item) => {
+    const searchable = [
+      item.sample_id,
+      item.donor_id,
+      item.sample_type_name,
+      item.collection_date,
+      item.collection_location ?? "",
+      item.status,
+      item.description ?? "",
+    ].join(" ").toLowerCase();
+
+    return (
+      searchable.includes(needle) &&
+      (filter === "All" ||
+        item.status === filter ||
+        item.sample_type_name === filter)
+    );
+  });
+}
     if (safeSection === "processing") return data.processing.filter((item) => `${item.id} ${item.processType} ${item.researcher} ${item.inputSampleIds.join(" ")} ${item.outputSampleIds.join(" ")}`.toLowerCase().includes(needle));
     if (safeSection === "experiments") return data.experiments.filter((item) => `${item.id} ${item.type} ${item.researcher} ${item.status} ${item.sampleIds.join(" ")}`.toLowerCase().includes(needle) && (filter === "All" || item.status === filter));
     if (safeSection === "sequencing") return data.results.filter((item) => `${item.id} ${item.sampleId} ${item.experimentId} ${item.platform} ${item.status}`.toLowerCase().includes(needle));
     if (safeSection === "storage") return data.storage.filter((item) => `${item.id} ${item.name} ${item.location} ${item.status}`.toLowerCase().includes(needle));
     return data.activity.filter((item) => `${item.id} ${item.action} ${item.actor}`.toLowerCase().includes(needle));
-  }, [data, filter, query, safeSection]);
+  }, [data, databaseSamples, filter, query, safeSection]);
   const sorted = useMemo(() => [...filtered].sort((left, right) => {
     const leftValue = sortValue(left, sortKey);
     const rightValue = sortValue(right, sortKey);
@@ -38,8 +105,19 @@ export function RecordsPage({ section, onAdd, onEditDonor }: { section: string; 
       {heading.add && <button className="button button-primary" onClick={onAdd}><Plus size={14} />{heading.add}</button>}
     </PageHeading>
     {(safeSection === "sequencing" || safeSection === "audit") && <div style={{ marginBottom: 15 }}><Notice warning>{safeSection === "sequencing" ? "All read counts and quality scores are synthetic demonstration metrics, not patient results." : "Simulated activity only. These entries are not actual security audit records."}</Notice></div>}
-    <div className="split-layout"><Panel title={heading.panelTitle} caption={`${filtered.length} ${filtered.length === 1 ? "record" : "records"} · synthetic demo data`} className="table-panel">
+    <div className="split-layout"><Panel title={heading.panelTitle} caption={
+  safeSection === "samples"
+    ? `${filtered.length} database ${filtered.length === 1 ? "sample" : "samples"} from PostgreSQL`
+    : `${filtered.length} ${filtered.length === 1 ? "record" : "records"} · synthetic demo data`
+} className="table-panel">
       <div className="table-toolbar"><div className="search-box"><Search size={14} /><input aria-label={`Search ${heading.title}`} placeholder={`Search ${heading.title.toLowerCase()}...`} value={query} onChange={(event) => setQuery(event.target.value)} /></div><div style={{ display: "flex", gap: 8 }}>{heading.filters && <select className="filter-select" aria-label="Filter records" value={filter} onChange={(event) => setFilter(event.target.value)}>{heading.filters.map((option) => <option key={option}>{option}</option>)}</select>}{heading.sortKeys && <select className="filter-select" aria-label="Sort records" value={sortKey} onChange={(event) => setSortKey(event.target.value)}>{heading.sortKeys.map(([key, label]) => <option key={key} value={key}>Sort: {label}</option>)}</select>}</div></div>
+      {safeSection === "samples" && samplesLoading && (
+  <Notice>Loading samples from PostgreSQL...</Notice>
+)}
+
+{safeSection === "samples" && samplesError && (
+  <Notice warning>{samplesError}</Notice>
+)}
       <div className="table-scroll"><RecordTable section={safeSection} items={sorted} data={data} onSelect={setSelected} /></div>
     </Panel>
     <aside className="grid" style={{ alignContent: "start", gap: 12 }}>{selected && <Panel title="Record details" action={<>{safeSection === "donors" && "codedId" in selected && <button className="button button-quiet" onClick={() => onEditDonor(selected.id)}>Edit</button>}<button className="button button-quiet" onClick={() => setSelected(null)} aria-label="Clear selection">Clear</button></>}><Detail section={safeSection} record={selected} /></Panel>}{safeSection === "samples" && <Panel title="Lineage data" caption="Relationships are explicit only"><div className="detail-value">{data.processing.length} processing events recorded</div><p className="panel-caption">A sample is shown as derived only when a processing record explicitly names it as output.</p></Panel>}{safeSection === "storage" && <Panel title="Storage status"><div className="detail-value">{data.storage.filter((item) => item.status === "Operational").length} units operational</div><p className="panel-caption">Locations and capacities are synthetic.</p></Panel>}</aside></div>
@@ -62,12 +140,55 @@ function sortValue(item: unknown, key: string): string | number {
   return typeof value === "number" ? value : String(value ?? "");
 }
 
-type RecordItem = Donor | Sample | ProcessingEvent | Experiment;
+type RecordItem = Donor | Sample | DatabaseSample | ProcessingEvent | Experiment;
 function RecordTable({ section, items, data, onSelect }: { section: Section; items: unknown[]; data: ReturnType<typeof useDemoData>["data"]; onSelect: (record: RecordItem) => void }) {
   if (!items.length) return <EmptyState title="No matching records" detail="Try a different search or filter." />;
   const click = (record: RecordItem) => onSelect(record);
   if (section === "donors") return <table><thead><tr><th>Donor ID</th><th>Coded identifier</th><th>Consent</th><th>Registered</th><th>Cohort</th><th>Age band</th></tr></thead><tbody>{(items as Donor[]).map((donor) => <tr key={donor.id} onClick={() => click(donor)}><td><button className="table-link">{donor.id}</button></td><td>{donor.codedId}</td><td><Badge tone={donor.consentStatus === "Active" ? "success" : donor.consentStatus === "Pending" ? "warning" : "danger"}>{donor.consentStatus}</Badge></td><td>{donor.registeredAt}</td><td>{donor.cohort}</td><td>{donor.ageBand}</td></tr>)}</tbody></table>;
-  if (section === "samples") return <table><thead><tr><th>Sample ID</th><th>Donor ID</th><th>Type</th><th>Collection date</th><th>Status</th><th>Storage</th><th>Lineage</th></tr></thead><tbody>{(items as Sample[]).map((sample) => <tr key={sample.id} onClick={() => click(sample)}><td><button className="table-link">{sample.id}</button></td><td>{sample.donorId}</td><td>{sample.type}</td><td>{sample.collectionDate}</td><td><Badge tone={sample.status === "Available" ? "success" : sample.status === "Processing" ? "warning" : ""}>{sample.status}</Badge></td><td>{sample.storageUnitId}</td><td>{sample.lineageAvailable ? <Badge tone="info">Recorded</Badge> : "None"}</td></tr>)}</tbody></table>;
+  
+if (section === "samples") return (
+  <table>
+    <thead>
+      <tr>
+        <th>Sample ID</th>
+        <th>Donor ID</th>
+        <th>Type</th>
+        <th>Collection date</th>
+        <th>Status</th>
+        <th>Storage</th>
+        <th>Lineage</th>
+      </tr>
+    </thead>
+    <tbody>
+      {(items as DatabaseSample[]).map((sample) => (
+        <tr key={sample.sample_id} onClick={() => click(sample)}>
+          <td><button className="table-link">{sample.sample_id}</button></td>
+          <td>{sample.donor_id}</td>
+          <td>{sample.sample_type_name}</td>
+          <td>{sample.collection_date ? new Date(sample.collection_date).toLocaleDateString() : "—"}</td>
+          <td>
+            <Badge tone={sample.status === "processed" ? "success" : sample.status === "collected" ? "warning" : ""}>
+              {sample.status}
+            </Badge>
+          </td>
+          <td>
+            {sample.storage_locations?.length
+              ? sample.storage_locations.map((location) =>
+                  `${location.freezer_id} / ${location.position}`
+                ).join(", ")
+              : "Not stored"}
+          </td>
+          <td>
+            {sample.lineage_children?.length || sample.lineage_parents?.length
+              ? <Badge tone="info">Recorded</Badge>
+              : "None"}
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+);
+
   if (section === "processing") return <table><thead><tr><th>Event ID</th><th>Process</th><th>Date</th><th>Researcher</th><th>Input samples</th><th>Output samples</th></tr></thead><tbody>{(items as ProcessingEvent[]).map((event) => <tr key={event.id} onClick={() => click(event)}><td><button className="table-link">{event.id}</button></td><td>{event.processType}</td><td>{event.date}</td><td>{event.researcher}</td><td>{event.inputSampleIds.join(", ")}</td><td>{event.outputSampleIds.join(", ")}</td></tr>)}</tbody></table>;
   if (section === "experiments") return <table><thead><tr><th>Experiment</th><th>Type</th><th>Researcher</th><th>Start date</th><th>Samples</th><th>Status</th></tr></thead><tbody>{(items as Experiment[]).map((item) => <tr key={item.id} onClick={() => click(item)}><td><button className="table-link">{item.id}</button></td><td>{item.type}</td><td>{item.researcher}</td><td>{item.startDate}</td><td>{item.sampleIds.join(", ")}</td><td><Badge tone={item.status === "Complete" ? "success" : item.status === "In progress" ? "info" : "warning"}>{item.status}</Badge></td></tr>)}</tbody></table>;
   if (section === "sequencing") return <table><thead><tr><th>Result</th><th>Sample</th><th>Experiment</th><th>Platform</th><th>Read count*</th><th>Quality*</th><th>Status</th></tr></thead><tbody>{data.results.filter((item) => (items as typeof data.results).some((entry) => entry.id === item.id)).map((result) => <tr key={result.id}><td>{result.id}</td><td>{result.sampleId}</td><td>{result.experimentId}</td><td>{result.platform}</td><td>{result.readCount.toLocaleString()}</td><td>{result.qualityScore}%</td><td><Badge tone={result.status === "Complete" ? "success" : "warning"}>{result.status}</Badge></td></tr>)}</tbody></table>;

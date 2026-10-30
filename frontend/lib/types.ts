@@ -75,3 +75,35 @@ export interface DemoData {
   storage: StorageUnit[];
   activity: Activity[];
 }
+
+
+export interface DatabaseSample {
+  sample_id: string;
+  donor_id: string;
+  sample_type_name: string;
+  collection_date: string;
+  collection_location: string | null;
+  status: string;
+  description: string | null;
+  storage_locations: {
+    storage_id: number;
+    freezer_id: string;
+    rack_no: string;
+    box_no: string;
+    position: string;
+    temperature: number | null;
+    storage_status: string;
+    stored_date: string;
+    removed_date: string | null;
+  }[] | null;
+  lineage_children: {
+    related_sample_id: number;
+    relationship_type: string;
+    direction: "child";
+  }[] | null;
+  lineage_parents: {
+    related_sample_id: number;
+    relationship_type: string;
+    direction: "parent";
+  }[] | null;
+}

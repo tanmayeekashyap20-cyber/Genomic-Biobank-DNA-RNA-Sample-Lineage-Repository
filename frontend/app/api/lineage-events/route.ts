@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { ObjectId } from "mongodb";
 import clientPromise from "@/src/lib/mongodb";
+import { pool } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -78,7 +79,20 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    const sampleCheck = await pool.query(
+  "SELECT sample_id FROM public.sample WHERE sample_id = $1",
+  [parsed.data.sampleId]
+);
 
+if (sampleCheck.rowCount === 0) {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "The specified sample does not exist in PostgreSQL.",
+    },
+    { status: 404 }
+  );
+}
     const client = await clientPromise;
     const db = client.db("genomic_biobank");
     const now = new Date();

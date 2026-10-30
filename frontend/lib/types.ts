@@ -107,3 +107,7 @@ export interface DatabaseSample {
     direction: "parent";
   }[] | null;
 }
+export interface DatabaseDonor {
+  donor_id: string;
+  full_name: string;
+}

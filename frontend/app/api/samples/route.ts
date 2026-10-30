@@ -1,5 +1,6 @@
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { pool } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -85,6 +86,201 @@ export async function GET() {
         success: false,
         message: "Could not fetch samples from PostgreSQL.",
       },
+      { status: 500 }
+    );
+  }
+}
+const createSampleSchema = z.object({
+  donor_id: z.number().int().positive(),
+  sample_type_id: z.number().int().positive(),
+  collection_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  collection_location: z.string().max(255).nullable().optional(),
+  status: z.string().max(30).optional(),
+  description: z.string().nullable().optional(),
+});
+
+export async function POST(request: NextRequest) {
+  try {
+    const body: unknown = await request.json();
+    const parsed = createSampleSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { success: false, errors: parsed.error.flatten().fieldErrors },
+        { status: 400 }
+      );
+    }
+
+    const {
+      donor_id,
+      sample_type_id,
+      collection_date,
+      collection_location,
+      status,
+      description,
+    } = parsed.data;
+
+    const result = await pool.query(
+      `INSERT INTO public.sample
+        (donor_id, sample_type_id, collection_date,
+         collection_location, status, description)
+       VALUES ($1, $2, $3, $4, COALESCE($5, 'collected'), $6)
+       RETURNING *`,
+      [
+        donor_id,
+        sample_type_id,
+        collection_date,
+        collection_location ?? null,
+        status ?? null,
+        description ?? null,
+      ]
+    );
+
+    return NextResponse.json(
+      {
+        success: true,
+        message: "Sample created successfully.",
+        sample: result.rows[0],
+      },
+      { status: 201 }
+    );
+  } catch (error) {
+    console.error("Failed to create sample:", error);
+
+    const dbError = error as { code?: string };
+
+    if (dbError.code === "23503") {
+      return NextResponse.json(
+        { success: false, message: "Invalid donor ID or sample type ID." },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json(
+      { success: false, message: "Could not create sample." },
+      { status: 500 }
+    );
+  }
+}
+const updateSampleSchema = z.object({
+  status: z.string().min(1).max(30).optional(),
+  collection_location: z.string().max(255).nullable().optional(),
+  description: z.string().nullable().optional(),
+}).refine(
+  (data) => Object.keys(data).length > 0,
+  { message: "At least one field must be provided." }
+);
+export async function PATCH(request: NextRequest) {
+  try {
+    const body: unknown = await request.json();
+    const sampleId = Number(new URL(request.url).searchParams.get("id"));
+
+    if (!Number.isInteger(sampleId) || sampleId <= 0) {
+      return NextResponse.json(
+        { success: false, message: "A valid sample ID is required." },
+        { status: 400 }
+      );
+    }
+
+    const parsed = updateSampleSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Invalid update data.",
+          errors: parsed.error.flatten().fieldErrors,
+        },
+        { status: 400 }
+      );
+    }
+
+    const { status, collection_location, description } = parsed.data;
+
+    const result = await pool.query(
+      `UPDATE public.sample
+       SET
+         status = COALESCE($1, status),
+         collection_location = COALESCE($2, collection_location),
+         description = COALESCE($3, description)
+       WHERE sample_id = $4
+       RETURNING *`,
+      [
+        status ?? null,
+        collection_location ?? null,
+        description ?? null,
+        sampleId,
+      ]
+    );
+
+    if (result.rowCount === 0) {
+      return NextResponse.json(
+        { success: false, message: "Sample not found." },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: "Sample updated successfully.",
+      sample: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Failed to update sample:", error);
+
+    return NextResponse.json(
+      { success: false, message: "Could not update sample." },
+      { status: 500 }
+    );
+  }
+}
+export async function DELETE(request: NextRequest) {
+  try {
+    const sampleId = Number(new URL(request.url).searchParams.get("id"));
+
+    if (!Number.isInteger(sampleId) || sampleId <= 0) {
+      return NextResponse.json(
+        { success: false, message: "A valid sample ID is required." },
+        { status: 400 }
+      );
+    }
+
+    const result = await pool.query(
+      `DELETE FROM public.sample
+       WHERE sample_id = $1
+       RETURNING sample_id`,
+      [sampleId]
+    );
+
+    if (result.rowCount === 0) {
+      return NextResponse.json(
+        { success: false, message: "Sample not found." },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: "Sample deleted successfully.",
+      sample_id: result.rows[0].sample_id,
+    });
+  } catch (error) {
+    console.error("Failed to delete sample:", error);
+
+    const dbError = error as { code?: string };
+
+    if (dbError.code === "23503") {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "This sample is referenced by other records and cannot be deleted.",
+        },
+        { status: 409 }
+      );
+    }
+
+    return NextResponse.json(
+      { success: false, message: "Could not delete sample." },
       { status: 500 }
     );
   }

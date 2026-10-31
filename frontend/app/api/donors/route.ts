@@ -2,12 +2,47 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { pool } from "@/lib/db";
+import {
+  getAuthenticatedUser,
+  hasRole,
+  type AllowedRole,
+} from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Central authorization check
+async function authorize(
+  request: NextRequest,
+  allowedRoles: AllowedRole[]
+) {
+  const user = await getAuthenticatedUser(request);
+
+  if (!user) {
+    return NextResponse.json(
+      { success: false, message: "Authentication required." },
+      { status: 401 }
+    );
+  }
+
+  if (!hasRole(user, allowedRoles)) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: "You do not have permission for this action.",
+      },
+      { status: 403 }
+    );
+  }
+
+  return null;
+}
+
 // Fetch all donors
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = await authorize(request, ["Admin", "Researcher"]);
+  if (denied) return denied;
+
   try {
     const result = await pool.query(`
       SELECT
@@ -51,6 +86,9 @@ const createDonorSchema = z.object({
 
 // Create a donor
 export async function POST(request: NextRequest) {
+  const denied = await authorize(request, ["Admin", "Researcher"]);
+  if (denied) return denied;
+
   try {
     const body: unknown = await request.json();
     const parsed = createDonorSchema.safeParse(body);
@@ -104,7 +142,10 @@ export async function POST(request: NextRequest) {
 
     if (dbError.code === "23505") {
       return NextResponse.json(
-        { success: false, message: "A donor with this unique information already exists." },
+        {
+          success: false,
+          message: "A donor with this unique information already exists.",
+        },
         { status: 409 }
       );
     }
@@ -117,20 +158,24 @@ export async function POST(request: NextRequest) {
 }
 
 // Validate donor update data
-const updateDonorSchema = z.object({
-  full_name: z.string().trim().min(1).max(150).optional(),
-  date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-  gender: z.string().trim().max(30).nullable().optional(),
-  phone_number: z.string().trim().max(20).nullable().optional(),
-  email: z.string().trim().email().max(255).nullable().optional(),
-  address: z.string().nullable().optional(),
-}).refine(
-  (data) => Object.keys(data).length > 0,
-  { message: "At least one field must be provided." }
-);
+const updateDonorSchema = z
+  .object({
+    full_name: z.string().trim().min(1).max(150).optional(),
+    date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    gender: z.string().trim().max(30).nullable().optional(),
+    phone_number: z.string().trim().max(20).nullable().optional(),
+    email: z.string().trim().email().max(255).nullable().optional(),
+    address: z.string().nullable().optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: "At least one field must be provided.",
+  });
 
 // Update a donor using /api/donors?id=1
 export async function PATCH(request: NextRequest) {
+  const denied = await authorize(request, ["Admin", "Researcher"]);
+  if (denied) return denied;
+
   try {
     const donorId = Number(new URL(request.url).searchParams.get("id"));
 
@@ -210,7 +255,10 @@ export async function PATCH(request: NextRequest) {
 
     if (dbError.code === "23505") {
       return NextResponse.json(
-        { success: false, message: "A donor with this unique information already exists." },
+        {
+          success: false,
+          message: "A donor with this unique information already exists.",
+        },
         { status: 409 }
       );
     }
@@ -224,6 +272,9 @@ export async function PATCH(request: NextRequest) {
 
 // Delete a donor using /api/donors?id=1
 export async function DELETE(request: NextRequest) {
+  const denied = await authorize(request, ["Admin"]);
+  if (denied) return denied;
+
   try {
     const donorId = Number(new URL(request.url).searchParams.get("id"));
 

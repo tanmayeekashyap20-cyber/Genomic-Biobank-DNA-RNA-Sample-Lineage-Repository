@@ -4,9 +4,36 @@ import { z } from "zod";
 import { ObjectId } from "mongodb";
 import clientPromise from "@/src/lib/mongodb";
 import { pool } from "@/lib/db";
+import { getAuthenticatedUser, hasRole } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const collectionName = "lineage_events";
+
+// Check authentication and permissions
+async function authorize(request: NextRequest) {
+  const user = await getAuthenticatedUser(request);
+
+  if (!user) {
+    return NextResponse.json(
+      { success: false, message: "Authentication required." },
+      { status: 401 }
+    );
+  }
+
+  if (!hasRole(user, ["Admin", "Researcher"])) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: "You do not have permission to perform this action.",
+      },
+      { status: 403 }
+    );
+  }
+
+  return null;
+}
 
 const lineageEventSchema = z.object({
   sampleId: z.coerce.number().int().positive(),
@@ -22,9 +49,11 @@ const lineageEventSchema = z.object({
   performedBy: z.string().trim().min(1).max(100).optional(),
 });
 
-const collectionName = "lineage_events";
+// Fetch lineage events from MongoDB
+export async function GET(request: NextRequest) {
+  const denied = await authorize(request);
+  if (denied) return denied;
 
-export async function GET() {
   try {
     const client = await clientPromise;
     const db = client.db("genomic_biobank");
@@ -54,7 +83,11 @@ export async function GET() {
   }
 }
 
+// Create a lineage event in MongoDB
 export async function POST(request: NextRequest) {
+  const denied = await authorize(request);
+  if (denied) return denied;
+
   try {
     let body: unknown;
 
@@ -79,20 +112,23 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const sampleCheck = await pool.query(
-  "SELECT sample_id FROM public.sample WHERE sample_id = $1",
-  [parsed.data.sampleId]
-);
 
-if (sampleCheck.rowCount === 0) {
-  return NextResponse.json(
-    {
-      success: false,
-      message: "The specified sample does not exist in PostgreSQL.",
-    },
-    { status: 404 }
-  );
-}
+    // Confirm that the sample exists in PostgreSQL
+    const sampleCheck = await pool.query(
+      "SELECT sample_id FROM public.sample WHERE sample_id = $1",
+      [parsed.data.sampleId]
+    );
+
+    if (sampleCheck.rowCount === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "The specified sample does not exist in PostgreSQL.",
+        },
+        { status: 404 }
+      );
+    }
+
     const client = await clientPromise;
     const db = client.db("genomic_biobank");
     const now = new Date();

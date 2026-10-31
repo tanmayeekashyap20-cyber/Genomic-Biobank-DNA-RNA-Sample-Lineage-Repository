@@ -1,10 +1,33 @@
-import { NextResponse } from "next/server";
+
+import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
+import { getAuthenticatedUser, hasRole } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // Verify the current session
+  const user = await getAuthenticatedUser(request);
+
+  if (!user) {
+    return NextResponse.json(
+      { success: false, message: "Authentication required." },
+      { status: 401 }
+    );
+  }
+
+  // Only Admins and Researchers can access sample options
+  if (!hasRole(user, ["Admin", "Researcher"])) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: "You do not have permission to access sample options.",
+      },
+      { status: 403 }
+    );
+  }
+
   try {
     const [donors, sampleTypes] = await Promise.all([
       pool.query(`

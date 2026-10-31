@@ -1,11 +1,32 @@
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
+import { getAuthenticatedUser, hasRole } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+// Fetch lineage graph data for authorized users
+export async function GET(request: NextRequest) {
+  const user = await getAuthenticatedUser(request);
+
+  if (!user) {
+    return NextResponse.json(
+      { success: false, message: "Authentication required." },
+      { status: 401 }
+    );
+  }
+
+  if (!hasRole(user, ["Admin", "Researcher"])) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: "You do not have permission to view lineage graph data.",
+      },
+      { status: 403 }
+    );
+  }
+
   try {
     // Fetch donors and their samples from PostgreSQL
     const result = await pool.query(`

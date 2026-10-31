@@ -2,9 +2,37 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { pool } from "@/lib/db";
+import { getAuthenticatedUser, hasRole, type AllowedRole } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// Check authentication and permissions
+async function authorize(
+  request: NextRequest,
+  allowedRoles: AllowedRole[]
+) {
+  const user = await getAuthenticatedUser(request);
+
+  if (!user) {
+    return NextResponse.json(
+      { success: false, message: "Authentication required." },
+      { status: 401 }
+    );
+  }
+
+  if (!hasRole(user, allowedRoles)) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: "You do not have permission to perform this action.",
+      },
+      { status: 403 }
+    );
+  }
+
+  return null;
+}
 
 // Validate date format
 const dateSchema = z.string().regex(
@@ -13,7 +41,10 @@ const dateSchema = z.string().regex(
 );
 
 // GET: Fetch sequencing results
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = await authorize(request, ["Admin", "Researcher"]);
+  if (denied) return denied;
+
   try {
     const result = await pool.query(`
       SELECT
@@ -67,6 +98,9 @@ const createSequencingResultSchema = z.object({
 
 // POST: Create a sequencing result
 export async function POST(request: NextRequest) {
+  const denied = await authorize(request, ["Admin", "Researcher"]);
+  if (denied) return denied;
+
   try {
     const body: unknown = await request.json();
     const parsed = createSequencingResultSchema.safeParse(body);
@@ -174,6 +208,9 @@ const updateSequencingResultSchema = z.object({
 
 // PATCH: Update a sequencing result using ?id=1
 export async function PATCH(request: NextRequest) {
+  const denied = await authorize(request, ["Admin", "Researcher"]);
+  if (denied) return denied;
+
   try {
     const resultId = Number(
       new URL(request.url).searchParams.get("id")
@@ -294,6 +331,9 @@ export async function PATCH(request: NextRequest) {
 
 // DELETE: Remove a sequencing result using ?id=1
 export async function DELETE(request: NextRequest) {
+  const denied = await authorize(request, ["Admin"]);
+  if (denied) return denied;
+
   try {
     const resultId = Number(
       new URL(request.url).searchParams.get("id")

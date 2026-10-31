@@ -2,12 +2,42 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { pool } from "@/lib/db";
+import { getAuthenticatedUser, hasRole, type AllowedRole } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const READ_WRITE_ROLES: AllowedRole[] = ["Admin", "Researcher"];
+const ADMIN_ONLY: AllowedRole[] = ["Admin"];
+
+async function authorize(
+  request: NextRequest,
+  allowedRoles: AllowedRole[]
+): Promise<NextResponse | null> {
+  const user = await getAuthenticatedUser(request);
+
+  if (!user) {
+    return NextResponse.json(
+      { success: false, message: "Authentication required." },
+      { status: 401 }
+    );
+  }
+
+  if (!hasRole(user, allowedRoles)) {
+    return NextResponse.json(
+      { success: false, message: "You do not have permission to perform this action." },
+      { status: 403 }
+    );
+  }
+
+  return null;
+}
+
 // Fetch sample storage assignments and history
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = await authorize(request, READ_WRITE_ROLES);
+  if (denied) return denied;
+
   try {
     const result = await pool.query(`
       SELECT
@@ -55,6 +85,9 @@ const createSampleStorageSchema = z.object({
 
 // Assign a sample to a storage location
 export async function POST(request: NextRequest) {
+  const denied = await authorize(request, READ_WRITE_ROLES);
+  if (denied) return denied;
+
   const client = await pool.connect();
 
   try {
@@ -178,6 +211,9 @@ const removeSampleStorageSchema = z.object({
 
 // Record sample removal using /api/sample-storage?id=1
 export async function PATCH(request: NextRequest) {
+  const denied = await authorize(request, READ_WRITE_ROLES);
+  if (denied) return denied;
+
   const client = await pool.connect();
 
   try {
@@ -288,6 +324,9 @@ export async function PATCH(request: NextRequest) {
 
 // Delete a sample storage assignment using /api/sample-storage?id=1
 export async function DELETE(request: NextRequest) {
+  const denied = await authorize(request, ADMIN_ONLY);
+  if (denied) return denied;
+
   const client = await pool.connect();
 
   try {

@@ -2,12 +2,43 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { pool } from "@/lib/db";
+import { getAuthenticatedUser, hasRole, type AllowedRole } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Check authentication and permissions
+async function authorize(
+  request: NextRequest,
+  allowedRoles: AllowedRole[]
+) {
+  const user = await getAuthenticatedUser(request);
+
+  if (!user) {
+    return NextResponse.json(
+      { success: false, message: "Authentication required." },
+      { status: 401 }
+    );
+  }
+
+  if (!hasRole(user, allowedRoles)) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: "You do not have permission to perform this action.",
+      },
+      { status: 403 }
+    );
+  }
+
+  return null;
+}
+
 // Fetch sample process records
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = await authorize(request, ["Admin", "Researcher"]);
+  if (denied) return denied;
+
   try {
     const result = await pool.query(`
       SELECT
@@ -57,6 +88,9 @@ const createSampleProcessSchema = z.object({
 
 // Create a sample process record
 export async function POST(request: NextRequest) {
+  const denied = await authorize(request, ["Admin", "Researcher"]);
+  if (denied) return denied;
+
   try {
     const body: unknown = await request.json();
     const parsed = createSampleProcessSchema.safeParse(body);
@@ -145,8 +179,11 @@ const updateSampleProcessSchema = z.object({
   { message: "At least one field must be provided." }
 );
 
-// Update a sample process using /api/sample-processes?id=1
+// Update a sample process
 export async function PATCH(request: NextRequest) {
+  const denied = await authorize(request, ["Admin", "Researcher"]);
+  if (denied) return denied;
+
   try {
     const sampleProcessId = Number(
       new URL(request.url).searchParams.get("id")
@@ -247,8 +284,11 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-// Delete a sample process using /api/sample-processes?id=1
+// Delete a sample process
 export async function DELETE(request: NextRequest) {
+  const denied = await authorize(request, ["Admin"]);
+  if (denied) return denied;
+
   try {
     const sampleProcessId = Number(
       new URL(request.url).searchParams.get("id")

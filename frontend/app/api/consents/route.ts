@@ -2,12 +2,47 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { pool } from "@/lib/db";
+import {
+  getAuthenticatedUser,
+  hasRole,
+  type AllowedRole,
+} from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Central authorization check
+async function authorize(
+  request: NextRequest,
+  allowedRoles: AllowedRole[]
+) {
+  const user = await getAuthenticatedUser(request);
+
+  if (!user) {
+    return NextResponse.json(
+      { success: false, message: "Authentication required." },
+      { status: 401 }
+    );
+  }
+
+  if (!hasRole(user, allowedRoles)) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: "You do not have permission for this action.",
+      },
+      { status: 403 }
+    );
+  }
+
+  return null;
+}
+
 // Fetch consent records
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = await authorize(request, ["Admin", "Researcher"]);
+  if (denied) return denied;
+
   try {
     const result = await pool.query(`
       SELECT
@@ -60,6 +95,9 @@ const createConsentSchema = z.object({
 
 // Create a consent record
 export async function POST(request: NextRequest) {
+  const denied = await authorize(request, ["Admin", "Researcher"]);
+  if (denied) return denied;
+
   try {
     const body: unknown = await request.json();
     const parsed = createConsentSchema.safeParse(body);
@@ -147,6 +185,9 @@ const updateConsentSchema = z.object({
 
 // Update a consent record using /api/consents?id=1
 export async function PATCH(request: NextRequest) {
+  const denied = await authorize(request, ["Admin", "Researcher"]);
+  if (denied) return denied;
+
   try {
     const consentId = Number(new URL(request.url).searchParams.get("id"));
 
@@ -244,6 +285,9 @@ export async function PATCH(request: NextRequest) {
 
 // Delete a consent record using /api/consents?id=1
 export async function DELETE(request: NextRequest) {
+  const denied = await authorize(request, ["Admin"]);
+  if (denied) return denied;
+
   try {
     const consentId = Number(new URL(request.url).searchParams.get("id"));
 

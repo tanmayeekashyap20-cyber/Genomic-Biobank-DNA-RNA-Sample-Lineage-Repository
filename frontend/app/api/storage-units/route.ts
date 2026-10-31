@@ -2,12 +2,43 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { pool } from "@/lib/db";
+import { getAuthenticatedUser, hasRole, type AllowedRole } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Check authentication and permissions
+async function authorize(
+  request: NextRequest,
+  allowedRoles: AllowedRole[]
+) {
+  const user = await getAuthenticatedUser(request);
+
+  if (!user) {
+    return NextResponse.json(
+      { success: false, message: "Authentication required." },
+      { status: 401 }
+    );
+  }
+
+  if (!hasRole(user, allowedRoles)) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: "You do not have permission to perform this action.",
+      },
+      { status: 403 }
+    );
+  }
+
+  return null;
+}
+
 // Fetch storage units
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = await authorize(request, ["Admin", "Researcher"]);
+  if (denied) return denied;
+
   try {
     const result = await pool.query(`
       SELECT
@@ -50,6 +81,9 @@ const createStorageUnitSchema = z.object({
 
 // Create a storage unit
 export async function POST(request: NextRequest) {
+  const denied = await authorize(request, ["Admin", "Researcher"]);
+  if (denied) return denied;
+
   try {
     const body: unknown = await request.json();
     const parsed = createStorageUnitSchema.safeParse(body);
@@ -121,6 +155,9 @@ const updateStorageUnitSchema = z.object({
 
 // Update storage unit using /api/storage-units?id=1
 export async function PATCH(request: NextRequest) {
+  const denied = await authorize(request, ["Admin", "Researcher"]);
+  if (denied) return denied;
+
   try {
     const storageId = Number(
       new URL(request.url).searchParams.get("id")
@@ -208,6 +245,9 @@ export async function PATCH(request: NextRequest) {
 
 // Delete storage unit using /api/storage-units?id=1
 export async function DELETE(request: NextRequest) {
+  const denied = await authorize(request, ["Admin"]);
+  if (denied) return denied;
+
   try {
     const storageId = Number(
       new URL(request.url).searchParams.get("id")

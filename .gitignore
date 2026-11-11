@@ -1,16 +1,15 @@
-# Frontend generated files
-frontend/node_modules/
-frontend/.next/
-frontend/.env
-frontend/.env.local
-
 # Environment and secrets
 .env
-.env.local
+.env.*
+!.env.example
+/frontend/.env
+/frontend/.env.*
+!/frontend/.env.example
 
 # Dependencies and build output
 node_modules/
+.next/
+out/
 dist/
 build/
-tsconfig.tsbuildinfo
-frontend/tsconfig.tsbuildinfo
+*.tsbuildinfo

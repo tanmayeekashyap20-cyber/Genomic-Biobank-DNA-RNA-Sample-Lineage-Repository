@@ -1,4 +1,4 @@
-
+﻿
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
@@ -216,9 +216,40 @@ export function LineageExplorer() {
 
         const donors = result.donors ?? [];
         const lineage = result.lineage ?? [];
+        const processes = result.processes ?? [];
+        const sampleProcesses = result.sampleProcesses ?? [];
+        const experiments = result.experiments ?? [];
+        const experimentSamples = result.experimentSamples ?? [];
+        const sequencingResults = result.sequencingResults ?? [];
 
         const graphNodes: LineageNode[] = [];
         const graphEdges: LineageEdge[] = [];
+
+        const addEdge = (
+          source: string,
+          target: string,
+          relationship: string,
+          color = "#82969b"
+        ) => {
+          graphEdges.push({
+            id: `${source}-${target}-${relationship}`,
+            source,
+            target,
+            label: relationship,
+            type: "smoothstep",
+            markerEnd: {
+              type: "arrowclosed",
+              color,
+            },
+            style: {
+              stroke: color,
+              strokeWidth: 1.7,
+            },
+            data: {
+              relationship,
+            },
+          });
+        };
 
         donors.forEach((donor, donorIndex) => {
           const donorNodeId = `donor-${donor.donor_id}`;
@@ -256,51 +287,115 @@ export function LineageExplorer() {
               },
             });
 
-            graphEdges.push({
-              id: `${donorNodeId}-${sampleNodeId}`,
-              source: donorNodeId,
-              target: sampleNodeId,
-              label: "collected as",
-              type: "smoothstep",
-              markerEnd: {
-                type: "arrowclosed",
-                color: "#82969b",
-              },
-              style: {
-                stroke: "#82969b",
-                strokeWidth: 1.5,
-              },
-              data: {
-                relationship: "collected as",
-              },
-            });
+            addEdge(donorNodeId, sampleNodeId, "collected as");
           });
         });
 
-        // Add actual sample-to-sample lineage relationships.
         lineage.forEach((relationship) => {
-          const source = `sample-${relationship.parent_sample_id}`;
-          const target = `sample-${relationship.child_sample_id}`;
+          addEdge(
+            `sample-${relationship.parent_sample_id}`,
+            `sample-${relationship.child_sample_id}`,
+            relationship.relationship_type,
+            "#168b82"
+          );
+        });
 
-          graphEdges.push({
-            id: `lineage-${source}-${target}`,
-            source,
-            target,
-            label: relationship.relationship_type,
-            type: "smoothstep",
-            markerEnd: {
-              type: "arrowclosed",
-              color: "#168b82",
-            },
-            style: {
-              stroke: "#168b82",
-              strokeWidth: 2,
+        processes.forEach((process, index) => {
+          graphNodes.push({
+            id: `process-${process.process_id}`,
+            type: "graph",
+            position: {
+              x: 590,
+              y: 80 + index * 150,
             },
             data: {
-              relationship: relationship.relationship_type,
+              kind: "process",
+              label: process.process_type,
+              subtitle: `Process ${process.process_id}`,
+              recordId: process.process_id,
             },
           });
         });
+
+        sampleProcesses.forEach((item) => {
+          const processNodeId = `process-${item.process_id}`;
+
+          addEdge(
+            `sample-${item.input_sample_id}`,
+            processNodeId,
+            "input sample",
+            "#c18b35"
+          );
+
+          addEdge(
+            processNodeId,
+            `sample-${item.output_sample_id}`,
+            "output sample",
+            "#c18b35"
+          );
+        });
+
+        experiments.forEach((experiment, index) => {
+          graphNodes.push({
+            id: `experiment-${experiment.experiment_id}`,
+            type: "graph",
+            position: {
+              x: 590,
+              y: 900 + index * 160,
+            },
+            data: {
+              kind: "experiment",
+              label: experiment.experiment_name,
+              subtitle: `Experiment ${experiment.experiment_id} · ${experiment.status}`,
+              recordId: experiment.experiment_id,
+            },
+          });
+        });
+
+        experimentSamples.forEach((item) => {
+          addEdge(
+            `sample-${item.sample_id}`,
+            `experiment-${item.experiment_id}`,
+            "used in experiment",
+            "#6d79a2"
+          );
+        });
+
+        sequencingResults.forEach((result, index) => {
+          const resultNodeId = `result-${result.sequencing_result_id}`;
+
+          graphNodes.push({
+            id: resultNodeId,
+            type: "graph",
+            position: {
+              x: 950,
+              y: 80 + index * 130,
+            },
+            data: {
+              kind: "result",
+              label: `Result ${result.sequencing_result_id}`,
+              subtitle: result.sequencing_platform || result.result_status,
+              recordId: result.sequencing_result_id,
+            },
+          });
+
+          addEdge(
+            `sample-${result.sample_id}`,
+            resultNodeId,
+            "sequencing result",
+            "#b46d69"
+          );
+
+          if (result.experiment_id) {
+            addEdge(
+              `experiment-${result.experiment_id}`,
+              resultNodeId,
+              "generated result",
+              "#b46d69"
+            );
+          }
+        });
+
 
         if (active) {
           setDatabaseDonors(donors);
@@ -332,16 +427,31 @@ export function LineageExplorer() {
     };
   }, []);
 
-  // Load real event history from MongoDB.
+// Load MongoDB event history for the selected sample.
   useEffect(() => {
     let active = true;
+
+    const sampleId =
+      selected?.data.kind === "sample"
+        ? selected.data.recordId
+        : null;
+
+    if (!sampleId) {
+      setEvents([]);
+      setEventsError("");
+      setEventsLoading(false);
+      return;
+    }
 
     async function loadEvents() {
       try {
         setEventsLoading(true);
         setEventsError("");
+        setEvents([]);
 
-        const response = await fetch("/api/lineage-events");
+        const response = await fetch(
+          `/api/lineage-events?sampleId=${encodeURIComponent(sampleId)}&limit=100&skip=0`
+        );
         const result: EventsApiResponse = await response.json();
 
         if (!response.ok || !result.success) {
@@ -373,8 +483,7 @@ export function LineageExplorer() {
     return () => {
       active = false;
     };
-  }, []);
-
+  }, [selected]);
   // Apply graph filters.
   useEffect(() => {
     const visible = graph.nodes.filter(
@@ -454,21 +563,8 @@ export function LineageExplorer() {
         )
       : [];
 
-  // Match MongoDB events to the selected sample.
-  const selectedSampleEvents =
-    selectedSample
-      ? events
-          .filter(
-            (event) =>
-              String(event.sampleId) === selectedSample.sample_id
-          )
-          .sort(
-            (a, b) =>
-              new Date(b.eventDate).getTime() -
-              new Date(a.eventDate).getTime()
-          )
-      : [];
-
+// Events are already filtered by sample ID through the API.
+  const selectedSampleEvents = events;
   return (
     <>
       <PageHeading
@@ -730,9 +826,9 @@ export function LineageExplorer() {
                               style={{ marginTop: 5 }}
                             >
                               Sample {item.parent_sample_id}
-                              {" → "}
+                              {" â†’ "}
                               Sample {item.child_sample_id}
-                              {" · "}
+                              {" Â· "}
                               {item.relationship_type}
                             </div>
                           ))
@@ -870,3 +966,7 @@ export function LineageExplorer() {
     </>
   );
 }
+
+
+
+

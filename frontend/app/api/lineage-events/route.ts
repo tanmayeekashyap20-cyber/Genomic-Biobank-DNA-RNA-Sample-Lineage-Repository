@@ -1,5 +1,4 @@
-
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { ObjectId } from "mongodb";
 import clientPromise from "@/src/lib/mongodb";
@@ -11,28 +10,33 @@ export const dynamic = "force-dynamic";
 
 const collectionName = "lineage_events";
 
-// Check authentication and permissions
 async function authorize(request: NextRequest) {
   const user = await getAuthenticatedUser(request);
 
   if (!user) {
-    return NextResponse.json(
-      { success: false, message: "Authentication required." },
-      { status: 401 }
-    );
+    return {
+      user: null,
+      response: NextResponse.json(
+        { success: false, message: "Authentication required." },
+        { status: 401 }
+      ),
+    };
   }
 
   if (!hasRole(user, ["Admin", "Researcher"])) {
-    return NextResponse.json(
-      {
-        success: false,
-        message: "You do not have permission to perform this action.",
-      },
-      { status: 403 }
-    );
+    return {
+      user: null,
+      response: NextResponse.json(
+        {
+          success: false,
+          message: "You do not have permission to perform this action.",
+        },
+        { status: 403 }
+      ),
+    };
   }
 
-  return null;
+  return { user, response: null };
 }
 
 const lineageEventSchema = z.object({
@@ -46,31 +50,79 @@ const lineageEventSchema = z.object({
   ]),
   description: z.string().trim().min(3).max(500),
   eventDate: z.string().datetime({ offset: true }).optional(),
-  performedBy: z.string().trim().min(1).max(100).optional(),
 });
 
-// Fetch lineage events from MongoDB
+function parsePositiveInteger(value: string | null, fallback: number) {
+  if (value === null) return fallback;
+
+  const parsed = Number(value);
+
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    return null;
+  }
+
+  return parsed;
+}
+
 export async function GET(request: NextRequest) {
-  const denied = await authorize(request);
-  if (denied) return denied;
+  const auth = await authorize(request);
+  if (auth.response) return auth.response;
 
   try {
-    const client = await clientPromise;
-    const db = client.db("genomic_biobank");
+    const searchParams = request.nextUrl.searchParams;
 
-    const events = await db
-      .collection(collectionName)
-      .find({})
-      .sort({ createdAt: -1 })
-      .limit(100)
-      .toArray();
+    const sampleIdValue = searchParams.get("sampleId");
+    const limit = parsePositiveInteger(searchParams.get("limit"), 100);
+    const skip = parsePositiveInteger(searchParams.get("skip"), 0);
+
+    if (limit === null || limit < 1 || limit > 100 || skip === null) {
+      return NextResponse.json(
+        { success: false, message: "Invalid pagination parameters." },
+        { status: 400 }
+      );
+    }
+
+    let sampleId: number | undefined;
+
+    if (sampleIdValue !== null) {
+      sampleId = parsePositiveInteger(sampleIdValue, 0);
+
+      if (sampleId === null || sampleId < 1) {
+        return NextResponse.json(
+          { success: false, message: "Invalid sampleId." },
+          { status: 400 }
+        );
+      }
+    }
+
+    const client = await clientPromise;
+    const collection = client
+      .db("genomic_biobank")
+      .collection(collectionName);
+
+    const filter = sampleId === undefined ? {} : { sampleId };
+
+    const [events, total] = await Promise.all([
+      collection
+        .find(filter)
+        .sort({ eventDate: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .toArray(),
+      collection.countDocuments(filter),
+    ]);
 
     return NextResponse.json({
       success: true,
       count: events.length,
+      total,
+      limit,
+      skip,
       events: events.map((event) => ({
         ...event,
-        _id: event._id instanceof ObjectId ? event._id.toString() : event._id,
+        _id: event._id instanceof ObjectId
+          ? event._id.toString()
+          : event._id,
       })),
     });
   } catch (error) {
@@ -83,10 +135,9 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Create a lineage event in MongoDB
 export async function POST(request: NextRequest) {
-  const denied = await authorize(request);
-  if (denied) return denied;
+  const auth = await authorize(request);
+  if (auth.response) return auth.response;
 
   try {
     let body: unknown;
@@ -113,7 +164,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Confirm that the sample exists in PostgreSQL
     const sampleCheck = await pool.query(
       "SELECT sample_id FROM public.sample WHERE sample_id = $1",
       [parsed.data.sampleId]
@@ -130,20 +180,23 @@ export async function POST(request: NextRequest) {
     }
 
     const client = await clientPromise;
-    const db = client.db("genomic_biobank");
+    const collection = client
+      .db("genomic_biobank")
+      .collection(collectionName);
+
     const now = new Date();
 
     const event = {
       ...parsed.data,
+      performedBy: auth.user!.username,
+      performedByUserId: auth.user!.userId,
       eventDate: parsed.data.eventDate
         ? new Date(parsed.data.eventDate)
         : now,
       createdAt: now,
     };
 
-    const result = await db
-      .collection(collectionName)
-      .insertOne(event);
+    const result = await collection.insertOne(event);
 
     return NextResponse.json(
       {

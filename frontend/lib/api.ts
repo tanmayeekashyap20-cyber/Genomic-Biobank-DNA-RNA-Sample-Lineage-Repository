@@ -1,16 +1,30 @@
-export type RuntimeMode = "demo" | "api-configured";
-
-export function getRuntimeMode(): RuntimeMode {
-  return process.env.NEXT_PUBLIC_API_BASE_URL ? "api-configured" : "demo";
-}
-
-export async function requestApi<T>(path: string, init?: RequestInit): Promise<T> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
-  if (!baseUrl) throw new Error("No API base URL is configured. Demo mode remains active.");
-  const response = await fetch(new URL(path, baseUrl), {
+﻿export async function requestApi<T>(
+  path: string,
+  init?: RequestInit
+): Promise<T> {
+  const response = await fetch(path, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      ...init?.headers,
+    },
   });
-  if (!response.ok) throw new Error(`API request failed (${response.status}).`);
+
+  if (!response.ok) {
+    let message = `API request failed (${response.status}).`;
+
+    try {
+      const result = await response.json();
+      if (typeof result.message === "string") {
+        message = result.message;
+      }
+    } catch {
+      // Keep the default error message if the response is not JSON.
+    }
+
+    throw new Error(message);
+  }
+
   return response.json() as Promise<T>;
 }

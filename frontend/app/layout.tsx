@@ -1,19 +1,22 @@
+
 import type { Metadata } from "next";
 import "@xyflow/react/dist/style.css";
 import "./globals.css";
-import { DemoDataProvider } from "@/components/demo-data-provider";
 
 export const metadata: Metadata = {
   title: "Genomic Biobank | Sample Lineage Repository",
-  description: "Synthetic demonstration workspace for biobank sample operations and lineage exploration.",
+  description:
+    "Genomic biobank management system for donor records, DNA/RNA samples, experiments, storage and sample lineage using PostgreSQL and MongoDB.",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
     <html lang="en">
-      <body>
-        <DemoDataProvider>{children}</DemoDataProvider>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

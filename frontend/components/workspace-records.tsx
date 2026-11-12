@@ -1,211 +1,1013 @@
+﻿
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Search } from "lucide-react";
-import { useDemoData } from "@/components/demo-data-provider";
-import { Badge, EmptyState, Notice, PageHeading, Panel } from "@/components/ui";
+import {
+  Badge,
+  EmptyState,
+  Notice,
+  PageHeading,
+  Panel,
+} from "@/components/ui";
+
 import type {
+  DatabaseDonor,
   DatabaseSample,
-  Donor,
-  Experiment,
-  ProcessingEvent,
-  Sample,
+  DatabaseProcess,
+  DatabaseSampleProcess,
+  DatabaseExperiment,
+  DatabaseExperimentSample,
+  DatabaseSequencingResult,
+  DatabaseStorageUnit,
+  DatabaseSampleStorage,
 } from "@/lib/types";
 
-type Section = "donors" | "samples" | "processing" | "experiments" | "sequencing" | "storage" | "audit";
+type Section =
+  | "donors"
+  | "samples"
+  | "processing"
+  | "experiments"
+  | "sequencing"
+  | "storage"
+  | "audit";
 
-export function RecordsPage({ section, onAdd, onEditDonor }: { section: string; onAdd: () => void; onEditDonor: (id: string) => void }) {
+type RecordsData = {
+  donors: DatabaseDonor[];
+  samples: DatabaseSample[];
+  processes: DatabaseProcess[];
+  sample_processes: DatabaseSampleProcess[];
+  experiments: DatabaseExperiment[];
+  experiment_samples: DatabaseExperimentSample[];
+  sequencing_results: DatabaseSequencingResult[];
+  storage_units: DatabaseStorageUnit[];
+  sample_storage: DatabaseSampleStorage[];
+};
+
+type RecordItem =
+  | DatabaseDonor
+  | DatabaseSample
+  | DatabaseProcess
+  | DatabaseSampleProcess
+  | DatabaseExperiment
+  | DatabaseExperimentSample
+  | DatabaseSequencingResult
+  | DatabaseStorageUnit
+  | DatabaseSampleStorage;
+
+const emptyRecords: RecordsData = {
+  donors: [],
+  samples: [],
+  processes: [],
+  sample_processes: [],
+  experiments: [],
+  experiment_samples: [],
+  sequencing_results: [],
+  storage_units: [],
+  sample_storage: [],
+};
+
+const headings: Record<
+  Section,
+  {
+    eyebrow: string;
+    title: string;
+    subtitle: string;
+    panelTitle: string;
+    add?: string;
+  }
+> = {
+  donors: {
+    eyebrow: "Database records",
+    title: "Donors",
+    subtitle: "Donor registration records stored in PostgreSQL.",
+    panelTitle: "Donor register",
+    add: "Register donor",
+  },
+  samples: {
+    eyebrow: "Specimen inventory",
+    title: "Samples",
+    subtitle:
+      "Track sample collection, status, storage and recorded lineage.",
+    panelTitle: "Sample register",
+    add: "Register sample",
+  },
+  processing: {
+    eyebrow: "Sample operations",
+    title: "Processing",
+    subtitle:
+      "View processing operations and their input and output sample associations.",
+    panelTitle: "Processing events",
+    add: "Record event",
+  },
+  experiments: {
+    eyebrow: "Research activity",
+    title: "Experiments",
+    subtitle:
+      "View experiments and their associated samples.",
+    panelTitle: "Experiment register",
+    add: "Create experiment",
+  },
+  sequencing: {
+    eyebrow: "Research outputs",
+    title: "Sequencing results",
+    subtitle:
+      "Sequencing result records retrieved from PostgreSQL.",
+    panelTitle: "Sequencing result register",
+  },
+  storage: {
+    eyebrow: "Inventory operations",
+    title: "Storage",
+    subtitle:
+      "View storage units and their sample assignments.",
+    panelTitle: "Storage units",
+  },
+  audit: {
+    eyebrow: "Activity history",
+    title: "Activity log",
+    subtitle:
+      "Audit records are not yet exposed through this records endpoint.",
+    panelTitle: "Audit records",
+  },
+};
+
+function getRecordId(record: RecordItem): string {
+  if ("donor_id" in record) return String(record.donor_id);
+  if ("sample_id" in record && "collection_date" in record) {
+    return String(record.sample_id);
+  }
+  if ("process_id" in record && "process_type" in record) {
+    return String(record.process_id);
+  }
+  if ("sample_process_id" in record) {
+    return String(record.sample_process_id);
+  }
+  if ("experiment_id" in record && "experiment_name" in record) {
+    return String(record.experiment_id);
+  }
+  if ("experiment_sample_id" in record) {
+    return String(record.experiment_sample_id);
+  }
+  if ("sequencing_result_id" in record) {
+    return String(record.sequencing_result_id);
+  }
+  if ("storage_id" in record) return String(record.storage_id);
+  if ("sample_storage_id" in record) {
+    return String(record.sample_storage_id);
+  }
+  return "â€”";
+}
+
+function getStatus(record: RecordItem): string {
+  if ("status" in record) return String(record.status);
+  if ("result_status" in record) return String(record.result_status);
+  if ("storage_status" in record) return String(record.storage_status);
+  return "";
+}
+
+function getStatusTone(
+  status: string
+): "success" | "warning" | "danger" | "info" | "" {
+  const value = status.toLowerCase();
+
+  if (
+    value.includes("active") ||
+    value.includes("complete") ||
+    value.includes("available") ||
+    value.includes("operational")
+  ) {
+    return "success";
+  }
+
+  if (
+    value.includes("pending") ||
+    value.includes("planned") ||
+    value.includes("processing")
+  ) {
+    return "warning";
+  }
+
+  if (
+    value.includes("withdrawn") ||
+    value.includes("depleted") ||
+    value.includes("failed")
+  ) {
+    return "danger";
+  }
+
+  if (value.includes("progress")) return "info";
+
+  return "";
+}
+
+function formatDate(value: string | null | undefined): string {
+  if (!value) return "â€”";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleDateString();
+}
+
+function formatValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") {
+    return "â€”";
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "None";
+    return value.map((item) => formatValue(item)).join(", ");
+  }
+
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => `${key}: ${formatValue(item)}`)
+      .join(" Â· ");
+  }
+
+  return String(value);
+}
+
+export function RecordsPage({
+  section,
+  onAdd,
+  onEditDonor,
+}: {
+  section: string;
+  onAdd: () => void;
+  onEditDonor: (id: string) => void;
+}) {
+  const safeSection = (
+    section in headings ? section : "samples"
+  ) as Section;
+
+  const heading = headings[safeSection];
+
+  const [records, setRecords] = useState<RecordsData>(emptyRecords);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("All");
   const [sortKey, setSortKey] = useState("id");
-  const [selected, setSelected] = useState<Donor | Sample | DatabaseSample | ProcessingEvent | Experiment | null>(null);
-  const [databaseSamples, setDatabaseSamples] = useState<DatabaseSample[]>([]);
-  const [samplesLoading, setSamplesLoading] = useState(false);
-  const [samplesError, setSamplesError] = useState("");
-  const { data } = useDemoData();
+  const [selected, setSelected] = useState<RecordItem | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
- const safeSection = (section in headings ? section : "samples") as Section;
- const heading = headings[safeSection];
+  useEffect(() => {
+    let cancelled = false;
 
-useEffect(() => {
-  if (safeSection !== "samples") return;
+    async function loadRecords() {
+      setLoading(true);
+      setError("");
 
-  let cancelled = false;
+      try {
+        const response = await fetch("/api/records", {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        });
 
-  async function loadSamples() {
-    setSamplesLoading(true);
-    setSamplesError("");
+        const result = await response.json();
 
-    try {
-      const response = await fetch("/api/samples");
-      const result = await response.json();
+        if (!response.ok || !result.success) {
+          throw new Error(
+            result.error || result.message || "Could not load records."
+          );
+        }
 
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Could not load samples.");
+        if (!cancelled) {
+          setRecords({
+            ...emptyRecords,
+            ...result.records,
+          });
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Could not load records from PostgreSQL."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
-
-      if (!cancelled) {
-  setDatabaseSamples(result.samples as DatabaseSample[]);
-  console.log("PostgreSQL samples loaded:", result.samples.length);
-}
-    } catch {
-      if (!cancelled) {
-        setSamplesError("Could not load samples from PostgreSQL. Please check the API.");
-      }
-    } finally {
-      if (!cancelled) setSamplesLoading(false);
     }
+
+    void loadRecords();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const currentRecords = useMemo<RecordItem[]>(() => {
+    switch (safeSection) {
+      case "donors":
+        return records.donors;
+      case "samples":
+        return records.samples;
+      case "processing":
+        return [
+          ...records.processes,
+          ...records.sample_processes,
+        ];
+      case "experiments":
+        return [
+          ...records.experiments,
+          ...records.experiment_samples,
+        ];
+      case "sequencing":
+        return records.sequencing_results;
+      case "storage":
+        return [
+          ...records.storage_units,
+          ...records.sample_storage,
+        ];
+      case "audit":
+        return [];
+      default:
+        return [];
+    }
+  }, [records, safeSection]);
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+
+    return currentRecords.filter((record) => {
+      const searchable = JSON.stringify(record).toLowerCase();
+
+      const matchesSearch = searchable.includes(needle);
+
+      const status = getStatus(record);
+      const matchesFilter =
+        filter === "All" ||
+        status.toLowerCase() === filter.toLowerCase();
+
+      return matchesSearch && matchesFilter;
+    });
+  }, [currentRecords, filter, query]);
+
+  const sorted = useMemo(() => {
+    return [...filtered].sort((left, right) => {
+      let leftValue: unknown = getRecordId(left);
+      let rightValue: unknown = getRecordId(right);
+
+      if (sortKey !== "id") {
+        leftValue = (left as unknown as Record<string, unknown>)[sortKey];
+        rightValue = (right as unknown as Record<string, unknown>)[sortKey];
+      }
+
+      return String(leftValue ?? "").localeCompare(
+        String(rightValue ?? ""),
+        undefined,
+        { numeric: true }
+      );
+    });
+  }, [filtered, sortKey]);
+
+  const filterOptions = useMemo(() => {
+    const statuses = currentRecords
+      .map((record) => getStatus(record))
+      .filter(Boolean);
+
+    return ["All", ...Array.from(new Set(statuses))];
+  }, [currentRecords]);
+
+  return (
+    <>
+      <PageHeading
+        eyebrow={heading.eyebrow}
+        title={heading.title}
+        subtitle={heading.subtitle}
+      >
+        {heading.add && (
+          <button
+            className="button button-primary"
+            onClick={onAdd}
+          >
+            <Plus size={14} />
+            {heading.add}
+          </button>
+        )}
+      </PageHeading>
+
+      {error && (
+        <div style={{ marginBottom: 15 }}>
+          <Notice warning>{error}</Notice>
+        </div>
+      )}
+
+      {safeSection === "audit" && (
+        <div style={{ marginBottom: 15 }}>
+          <Notice>
+            The combined records endpoint does not currently return
+            audit log entries. No simulated activity is displayed.
+          </Notice>
+        </div>
+      )}
+
+      <div className="split-layout">
+        <Panel
+          title={heading.panelTitle}
+          caption={`${filtered.length} ${
+            filtered.length === 1 ? "record" : "records"
+          } from the database`}
+          className="table-panel"
+        >
+          <div className="table-toolbar">
+            <div className="search-box">
+              <Search size={14} />
+              <input
+                aria-label={`Search ${heading.title}`}
+                placeholder={`Search ${heading.title.toLowerCase()}...`}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              {filterOptions.length > 1 && (
+                <select
+                  className="filter-select"
+                  aria-label="Filter records"
+                  value={filter}
+                  onChange={(event) => setFilter(event.target.value)}
+                >
+                  {filterOptions.map((option) => (
+                    <option key={option}>{option}</option>
+                  ))}
+                </select>
+              )}
+
+              <select
+                className="filter-select"
+                aria-label="Sort records"
+                value={sortKey}
+                onChange={(event) => setSortKey(event.target.value)}
+              >
+                <option value="id">Sort: ID</option>
+                <option value="status">Sort: Status</option>
+              </select>
+            </div>
+          </div>
+
+          {loading && (
+            <Notice>Loading records from PostgreSQL...</Notice>
+          )}
+
+          {!loading && !error && (
+            <div className="table-scroll">
+              <RecordTable
+                section={safeSection}
+                items={sorted}
+                onSelect={setSelected}
+              />
+            </div>
+          )}
+        </Panel>
+
+        <aside
+          className="grid"
+          style={{ alignContent: "start", gap: 12 }}
+        >
+          {selected && (
+            <Panel
+              title="Record details"
+              action={
+                <>
+                  {safeSection === "donors" &&
+                    "donor_id" in selected && (
+                      <button
+                        className="button button-quiet"
+                        onClick={() =>
+                          onEditDonor(String(selected.donor_id))
+                        }
+                      >
+                        Edit
+                      </button>
+                    )}
+
+                  <button
+                    className="button button-quiet"
+                    onClick={() => setSelected(null)}
+                    aria-label="Clear selection"
+                  >
+                    Clear
+                  </button>
+                </>
+              }
+            >
+              <Detail record={selected} />
+            </Panel>
+          )}
+
+          {safeSection === "samples" && (
+            <Panel
+              title="Lineage data"
+              caption="Recorded sample relationships"
+            >
+              <div className="detail-value">
+                {records.sample_processes.length} sample processing
+                associations
+              </div>
+              <p className="panel-caption">
+                Relationships are displayed from recorded database
+                associations.
+              </p>
+            </Panel>
+          )}
+
+          {safeSection === "storage" && (
+            <Panel title="Storage overview">
+              <div className="detail-value">
+                {records.storage_units.length} storage units
+              </div>
+              <p className="panel-caption">
+                {records.sample_storage.length} sample storage
+                assignments recorded.
+              </p>
+            </Panel>
+          )}
+        </aside>
+      </div>
+    </>
+  );
+}
+
+function RecordTable({
+  section,
+  items,
+  onSelect,
+}: {
+  section: Section;
+  items: RecordItem[];
+  onSelect: (record: RecordItem) => void;
+}) {
+  if (!items.length) {
+    return (
+      <EmptyState
+        title="No matching records"
+        detail="Try a different search or filter. If the database contains no records, register one using the available action."
+      />
+    );
   }
 
-  void loadSamples();
-
-  return () => {
-    cancelled = true;
-  };
-}, [safeSection]);
-  
-  const filtered = useMemo(() => {
-    const needle = query.toLowerCase();
-    if (safeSection === "donors") return data.donors.filter((item) => `${item.id} ${item.codedId} ${item.cohort} ${item.consentStatus}`.toLowerCase().includes(needle) && (filter === "All" || item.consentStatus === filter));
-    if (safeSection === "samples") {
-  return databaseSamples.filter((item) => {
-    const searchable = [
-      item.sample_id,
-      item.donor_id,
-      item.sample_type_name,
-      item.collection_date,
-      item.collection_location ?? "",
-      item.status,
-      item.description ?? "",
-    ].join(" ").toLowerCase();
-
+  if (section === "donors") {
     return (
-      searchable.includes(needle) &&
-      (filter === "All" ||
-        item.status === filter ||
-        item.sample_type_name === filter)
+      <table>
+        <thead>
+          <tr>
+            <th>Donor ID</th>
+            <th>Registration date</th>
+            <th>Consent status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(items as DatabaseDonor[]).map((donor) => (
+            <tr
+              key={donor.donor_id}
+              onClick={() => onSelect(donor)}
+            >
+              <td>
+                <button className="table-link">
+                  {donor.donor_id}
+                </button>
+              </td>
+              <td>{formatDate(donor.registration_date)}</td>
+              <td>
+                <Badge tone={getStatusTone(donor.consent_status ?? "")}>
+                  {donor.consent_status ?? "Unknown"}
+                </Badge>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     );
-  });
+  }
+
+  if (section === "samples") {
+    return (
+      <table>
+        <thead>
+          <tr>
+            <th>Sample ID</th>
+            <th>Donor ID</th>
+            <th>Type</th>
+            <th>Collection date</th>
+            <th>Status</th>
+            <th>Storage</th>
+            <th>Lineage</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(items as DatabaseSample[]).map((sample) => (
+            <tr
+              key={sample.sample_id}
+              onClick={() => onSelect(sample)}
+            >
+              <td>
+                <button className="table-link">
+                  {sample.sample_id}
+                </button>
+              </td>
+              <td>{sample.donor_id}</td>
+              <td>{sample.sample_type_name}</td>
+              <td>{formatDate(sample.collection_date)}</td>
+              <td>
+                <Badge tone={getStatusTone(sample.status)}>
+                  {sample.status}
+                </Badge>
+              </td>
+              <td>
+                {sample.storage_locations?.length
+                  ? sample.storage_locations
+                      .map(
+                        (location) =>
+                          `${location.freezer_id ?? "â€”"} / ${
+                            location.position ?? "â€”"
+                          }`
+                      )
+                      .join(", ")
+                  : "Not stored"}
+              </td>
+              <td>
+                {sample.lineage_children?.length ||
+                sample.lineage_parents?.length ? (
+                  <Badge tone="info">Recorded</Badge>
+                ) : (
+                  "None"
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  }
+
+  if (section === "processing") {
+    return (
+      <table>
+        <thead>
+          <tr>
+            <th>Record ID</th>
+            <th>Process</th>
+            <th>Date</th>
+            <th>Researcher</th>
+            <th>Input sample</th>
+            <th>Output sample</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((record) => {
+            if ("sample_process_id" in record) {
+              return (
+                <tr
+                  key={record.sample_process_id}
+                  onClick={() => onSelect(record)}
+                >
+                  <td>{record.sample_process_id}</td>
+                  <td>{record.process_type}</td>
+                  <td>â€”</td>
+                  <td>â€”</td>
+                  <td>{record.input_sample_id}</td>
+                  <td>{record.output_sample_id}</td>
+                </tr>
+              );
+            }
+
+            const process = record as DatabaseProcess;
+
+            return (
+              <tr
+                key={process.process_id}
+                onClick={() => onSelect(process)}
+              >
+                <td>{process.process_id}</td>
+                <td>{process.process_type}</td>
+                <td>{formatDate(process.process_date)}</td>
+                <td>{process.researcher_name}</td>
+                <td>See sample associations</td>
+                <td>See sample associations</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    );
+  }
+
+  if (section === "experiments") {
+    return (
+      <table>
+        <thead>
+          <tr>
+            <th>Record ID</th>
+            <th>Experiment</th>
+            <th>Type</th>
+            <th>Researcher</th>
+            <th>Date</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((record) => {
+            if ("experiment_sample_id" in record) {
+              return (
+                <tr
+                  key={record.experiment_sample_id}
+                  onClick={() => onSelect(record)}
+                >
+                  <td>{record.experiment_sample_id}</td>
+                  <td>{record.experiment_name}</td>
+                  <td>Sample association</td>
+                  <td>â€”</td>
+                  <td>{formatDate(record.date_added)}</td>
+                  <td>{record.sample_status}</td>
+                </tr>
+              );
+            }
+
+            const experiment = record as DatabaseExperiment;
+
+            return (
+              <tr
+                key={experiment.experiment_id}
+                onClick={() => onSelect(experiment)}
+              >
+                <td>{experiment.experiment_id}</td>
+                <td>{experiment.experiment_name}</td>
+                <td>{experiment.experiment_type ?? "â€”"}</td>
+                <td>{experiment.researcher_name}</td>
+                <td>{formatDate(experiment.start_date)}</td>
+                <td>
+                  <Badge tone={getStatusTone(experiment.status)}>
+                    {experiment.status}
+                  </Badge>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    );
+  }
+
+  if (section === "sequencing") {
+    return (
+      <table>
+        <thead>
+          <tr>
+            <th>Result ID</th>
+            <th>Sample</th>
+            <th>Experiment</th>
+            <th>Platform</th>
+            <th>Run date</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(items as DatabaseSequencingResult[]).map((result) => (
+            <tr
+              key={result.sequencing_result_id}
+              onClick={() => onSelect(result)}
+            >
+              <td>{result.sequencing_result_id}</td>
+              <td>{result.sample_id}</td>
+              <td>{result.experiment_name ?? result.experiment_id ?? "â€”"}</td>
+              <td>{result.sequencing_platform ?? "â€”"}</td>
+              <td>{formatDate(result.run_date)}</td>
+              <td>
+                <Badge tone={getStatusTone(result.result_status)}>
+                  {result.result_status}
+                </Badge>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  }
+
+  if (section === "storage") {
+    return (
+      <table>
+        <thead>
+          <tr>
+            <th>Record ID</th>
+            <th>Freezer</th>
+            <th>Rack</th>
+            <th>Box</th>
+            <th>Position</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((record) => {
+            if ("sample_storage_id" in record) {
+              return (
+                <tr
+                  key={record.sample_storage_id}
+                  onClick={() => onSelect(record)}
+                >
+                  <td>{record.sample_storage_id}</td>
+                  <td>{record.freezer_id ?? "â€”"}</td>
+                  <td>{record.rack_no ?? "â€”"}</td>
+                  <td>{record.box_no ?? "â€”"}</td>
+                  <td>{record.position ?? "â€”"}</td>
+                  <td>
+                    <Badge tone={getStatusTone(record.storage_status)}>
+                      {record.storage_status}
+                    </Badge>
+                  </td>
+                </tr>
+              );
+            }
+
+            const unit = record as DatabaseStorageUnit;
+
+            return (
+              <tr
+                key={unit.storage_id}
+                onClick={() => onSelect(unit)}
+              >
+                <td>{unit.storage_id}</td>
+                <td>{unit.freezer_id ?? "â€”"}</td>
+                <td>{unit.rack_no ?? "â€”"}</td>
+                <td>{unit.box_no ?? "â€”"}</td>
+                <td>{unit.position ?? "â€”"}</td>
+                <td>
+                  <Badge tone={getStatusTone(unit.status)}>
+                    {unit.status}
+                  </Badge>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    );
+  }
+
+  return (
+    <EmptyState
+      title="No audit records available"
+      detail="Audit records are not currently returned by the records API."
+    />
+  );
 }
-    if (safeSection === "processing") return data.processing.filter((item) => `${item.id} ${item.processType} ${item.researcher} ${item.inputSampleIds.join(" ")} ${item.outputSampleIds.join(" ")}`.toLowerCase().includes(needle));
-    if (safeSection === "experiments") return data.experiments.filter((item) => `${item.id} ${item.type} ${item.researcher} ${item.status} ${item.sampleIds.join(" ")}`.toLowerCase().includes(needle) && (filter === "All" || item.status === filter));
-    if (safeSection === "sequencing") return data.results.filter((item) => `${item.id} ${item.sampleId} ${item.experimentId} ${item.platform} ${item.status}`.toLowerCase().includes(needle));
-    if (safeSection === "storage") return data.storage.filter((item) => `${item.id} ${item.name} ${item.location} ${item.status}`.toLowerCase().includes(needle));
-    return data.activity.filter((item) => `${item.id} ${item.action} ${item.actor}`.toLowerCase().includes(needle));
-  }, [data, databaseSamples, filter, query, safeSection]);
-  const sorted = useMemo(() => [...filtered].sort((left, right) => {
-    const leftValue = sortValue(left, sortKey);
-    const rightValue = sortValue(right, sortKey);
-    if (typeof leftValue === "number" && typeof rightValue === "number") return rightValue - leftValue;
-    return String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true });
-  }), [filtered, sortKey]);
 
-  return <>
-    <PageHeading eyebrow={heading.eyebrow} title={heading.title} subtitle={heading.subtitle}>
-      {heading.add && <button className="button button-primary" onClick={onAdd}><Plus size={14} />{heading.add}</button>}
-    </PageHeading>
-    {(safeSection === "sequencing" || safeSection === "audit") && <div style={{ marginBottom: 15 }}><Notice warning>{safeSection === "sequencing" ? "All read counts and quality scores are synthetic demonstration metrics, not patient results." : "Simulated activity only. These entries are not actual security audit records."}</Notice></div>}
-    <div className="split-layout"><Panel title={heading.panelTitle} caption={
-  safeSection === "samples"
-    ? `${filtered.length} database ${filtered.length === 1 ? "sample" : "samples"} from PostgreSQL`
-    : `${filtered.length} ${filtered.length === 1 ? "record" : "records"} · synthetic demo data`
-} className="table-panel">
-      <div className="table-toolbar"><div className="search-box"><Search size={14} /><input aria-label={`Search ${heading.title}`} placeholder={`Search ${heading.title.toLowerCase()}...`} value={query} onChange={(event) => setQuery(event.target.value)} /></div><div style={{ display: "flex", gap: 8 }}>{heading.filters && <select className="filter-select" aria-label="Filter records" value={filter} onChange={(event) => setFilter(event.target.value)}>{heading.filters.map((option) => <option key={option}>{option}</option>)}</select>}{heading.sortKeys && <select className="filter-select" aria-label="Sort records" value={sortKey} onChange={(event) => setSortKey(event.target.value)}>{heading.sortKeys.map(([key, label]) => <option key={key} value={key}>Sort: {label}</option>)}</select>}</div></div>
-      {safeSection === "samples" && samplesLoading && (
-  <Notice>Loading samples from PostgreSQL...</Notice>
-)}
+function Detail({ record }: { record: RecordItem }) {
+  const entries = Object.entries(
+    record as unknown as Record<string, unknown>
+  );
 
-{safeSection === "samples" && samplesError && (
-  <Notice warning>{samplesError}</Notice>
-)}
-      <div className="table-scroll"><RecordTable section={safeSection} items={sorted} data={data} onSelect={setSelected} /></div>
-    </Panel>
-    <aside className="grid" style={{ alignContent: "start", gap: 12 }}>{selected && <Panel title="Record details" action={<>{safeSection === "donors" && "codedId" in selected && <button className="button button-quiet" onClick={() => onEditDonor(selected.id)}>Edit</button>}<button className="button button-quiet" onClick={() => setSelected(null)} aria-label="Clear selection">Clear</button></>}><Detail section={safeSection} record={selected} /></Panel>}{safeSection === "samples" && <Panel title="Lineage data" caption="Relationships are explicit only"><div className="detail-value">{data.processing.length} processing events recorded</div><p className="panel-caption">A sample is shown as derived only when a processing record explicitly names it as output.</p></Panel>}{safeSection === "storage" && <Panel title="Storage status"><div className="detail-value">{data.storage.filter((item) => item.status === "Operational").length} units operational</div><p className="panel-caption">Locations and capacities are synthetic.</p></Panel>}</aside></div>
-  </>;
+  return (
+    <div>
+      {entries.map(([label, value]) => (
+        <div key={label} className="detail-block">
+          <div className="detail-label">
+            {label.replaceAll("_", " ")}
+          </div>
+          <div className="detail-value">
+            {formatValue(value)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
-const headings: Record<Section, { eyebrow: string; title: string; subtitle: string; panelTitle: string; add?: string; filters?: string[]; sortKeys?: [string, string][] }> = {
-  donors: { eyebrow: "Coded records", title: "Donors", subtitle: "Pseudonymous research cohort records. No direct identifiers are stored here.", panelTitle: "Donor register", add: "Register donor", filters: ["All", "Active", "Pending", "Withdrawn"], sortKeys: [["id", "donor ID"], ["codedId", "coded identifier"], ["registeredAt", "registration date"]] },
-  samples: { eyebrow: "Specimen inventory", title: "Samples", subtitle: "Track collection, status, storage, and explicitly recorded lineage.", panelTitle: "Sample register", add: "Register sample", filters: ["All", "DNA", "RNA", "Other", "Available", "Processing", "Archived", "Depleted"], sortKeys: [["id", "sample ID"], ["collectionDate", "collection date"], ["status", "status"], ["type", "sample type"]] },
-  processing: { eyebrow: "Sample operations", title: "Processing", subtitle: "Processing events link input samples to output samples explicitly.", panelTitle: "Processing events", add: "Record event", sortKeys: [["id", "event ID"], ["date", "date"], ["processType", "process type"]] },
-  experiments: { eyebrow: "Research activity", title: "Experiments", subtitle: "Research plans and sample associations in the demo repository.", panelTitle: "Experiment register", add: "Create experiment", filters: ["All", "Planned", "In progress", "Complete", "On hold"], sortKeys: [["id", "experiment ID"], ["startDate", "start date"], ["status", "status"], ["type", "type"]] },
-  sequencing: { eyebrow: "Research outputs", title: "Sequencing results", subtitle: "Demonstration-only metrics associated with synthetic samples and experiments.", panelTitle: "Result register", sortKeys: [["id", "result ID"], ["readCount", "read count"], ["qualityScore", "quality score"]] },
-  storage: { eyebrow: "Inventory operations", title: "Storage", subtitle: "Synthetic storage units, occupancy, and sample assignments.", panelTitle: "Storage units", sortKeys: [["id", "unit ID"], ["occupied", "occupancy"], ["capacity", "capacity"]] },
-  audit: { eyebrow: "Activity history", title: "Activity log", subtitle: "Simulated application events. Not a security audit trail.", panelTitle: "Recent activity", sortKeys: [["timestamp", "timestamp"], ["actor", "actor"]] },
+
+type AuditLogEntry = {
+  audit_id: number;
+  user_id: number | null;
+  action: string;
+  table_name: string | null;
+  record_id: number | null;
+  action_timestamp: string;
+  details: string | null;
 };
 
-function sortValue(item: unknown, key: string): string | number {
-  if (typeof item !== "object" || item === null) return "";
-  const value = (item as Record<string, unknown>)[key];
-  return typeof value === "number" ? value : String(value ?? "");
-}
+function AuditLogPanel() {
+  const [entries, setEntries] = useState<AuditLogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-type RecordItem = Donor | Sample | DatabaseSample | ProcessingEvent | Experiment;
-function RecordTable({ section, items, data, onSelect }: { section: Section; items: unknown[]; data: ReturnType<typeof useDemoData>["data"]; onSelect: (record: RecordItem) => void }) {
-  if (!items.length) return <EmptyState title="No matching records" detail="Try a different search or filter." />;
-  const click = (record: RecordItem) => onSelect(record);
-  if (section === "donors") return <table><thead><tr><th>Donor ID</th><th>Coded identifier</th><th>Consent</th><th>Registered</th><th>Cohort</th><th>Age band</th></tr></thead><tbody>{(items as Donor[]).map((donor) => <tr key={donor.id} onClick={() => click(donor)}><td><button className="table-link">{donor.id}</button></td><td>{donor.codedId}</td><td><Badge tone={donor.consentStatus === "Active" ? "success" : donor.consentStatus === "Pending" ? "warning" : "danger"}>{donor.consentStatus}</Badge></td><td>{donor.registeredAt}</td><td>{donor.cohort}</td><td>{donor.ageBand}</td></tr>)}</tbody></table>;
-  
-if (section === "samples") return (
-  <table>
-    <thead>
-      <tr>
-        <th>Sample ID</th>
-        <th>Donor ID</th>
-        <th>Type</th>
-        <th>Collection date</th>
-        <th>Status</th>
-        <th>Storage</th>
-        <th>Lineage</th>
-      </tr>
-    </thead>
-    <tbody>
-      {(items as DatabaseSample[]).map((sample) => (
-        <tr key={sample.sample_id} onClick={() => click(sample)}>
-          <td><button className="table-link">{sample.sample_id}</button></td>
-          <td>{sample.donor_id}</td>
-          <td>{sample.sample_type_name}</td>
-          <td>{sample.collection_date ? new Date(sample.collection_date).toLocaleDateString() : "—"}</td>
-          <td>
-            <Badge tone={sample.status === "processed" ? "success" : sample.status === "collected" ? "warning" : ""}>
-              {sample.status}
-            </Badge>
-          </td>
-          <td>
-            {sample.storage_locations?.length
-              ? sample.storage_locations.map((location) =>
-                  `${location.freezer_id} / ${location.position}`
-                ).join(", ")
-              : "Not stored"}
-          </td>
-          <td>
-            {sample.lineage_children?.length || sample.lineage_parents?.length
-              ? <Badge tone="info">Recorded</Badge>
-              : "None"}
-          </td>
-        </tr>
-      ))}
-    </tbody>
-  </table>
-);
+  useEffect(() => {
+    let cancelled = false;
 
-  if (section === "processing") return <table><thead><tr><th>Event ID</th><th>Process</th><th>Date</th><th>Researcher</th><th>Input samples</th><th>Output samples</th></tr></thead><tbody>{(items as ProcessingEvent[]).map((event) => <tr key={event.id} onClick={() => click(event)}><td><button className="table-link">{event.id}</button></td><td>{event.processType}</td><td>{event.date}</td><td>{event.researcher}</td><td>{event.inputSampleIds.join(", ")}</td><td>{event.outputSampleIds.join(", ")}</td></tr>)}</tbody></table>;
-  if (section === "experiments") return <table><thead><tr><th>Experiment</th><th>Type</th><th>Researcher</th><th>Start date</th><th>Samples</th><th>Status</th></tr></thead><tbody>{(items as Experiment[]).map((item) => <tr key={item.id} onClick={() => click(item)}><td><button className="table-link">{item.id}</button></td><td>{item.type}</td><td>{item.researcher}</td><td>{item.startDate}</td><td>{item.sampleIds.join(", ")}</td><td><Badge tone={item.status === "Complete" ? "success" : item.status === "In progress" ? "info" : "warning"}>{item.status}</Badge></td></tr>)}</tbody></table>;
-  if (section === "sequencing") return <table><thead><tr><th>Result</th><th>Sample</th><th>Experiment</th><th>Platform</th><th>Read count*</th><th>Quality*</th><th>Status</th></tr></thead><tbody>{data.results.filter((item) => (items as typeof data.results).some((entry) => entry.id === item.id)).map((result) => <tr key={result.id}><td>{result.id}</td><td>{result.sampleId}</td><td>{result.experimentId}</td><td>{result.platform}</td><td>{result.readCount.toLocaleString()}</td><td>{result.qualityScore}%</td><td><Badge tone={result.status === "Complete" ? "success" : "warning"}>{result.status}</Badge></td></tr>)}</tbody></table>;
-  if (section === "storage") return <table><thead><tr><th>Unit</th><th>Location</th><th>Assigned samples</th><th>Occupancy</th><th>Capacity</th><th>Utilization</th><th>Status</th></tr></thead><tbody>{data.storage.filter((item) => (items as typeof data.storage).some((entry) => entry.id === item.id)).map((unit) => <tr key={unit.id}><td>{unit.name}<div className="panel-caption">{unit.id}</div></td><td>{unit.location}</td><td>{data.samples.filter((sample) => sample.storageUnitId === unit.id).map((sample) => sample.id).join(", ") || "None"}</td><td>{unit.occupied}</td><td>{unit.capacity}</td><td>{Math.round((unit.occupied / unit.capacity) * 100)}%</td><td><Badge tone={unit.status === "Operational" ? "success" : "warning"}>{unit.status}</Badge></td></tr>)}</tbody></table>;
-  return <table><thead><tr><th>Timestamp</th><th>Action</th><th>Actor</th></tr></thead><tbody>{data.activity.filter((item) => (items as typeof data.activity).some((entry) => entry.id === item.id)).map((item) => <tr key={item.id}><td>{new Date(item.timestamp).toLocaleString()}</td><td>{item.action}</td><td>{item.actor}</td></tr>)}</tbody></table>;
-}
+    async function loadAuditLogs() {
+      setLoading(true);
+      setError("");
 
-function Detail({ section, record }: { section: Section; record: RecordItem }) {
-  const { data } = useDemoData();
-  const entries: [string, string][] = section === "donors" && "codedId" in record
-    ? [["Donor ID", record.id], ["Coded identifier", record.codedId], ["Consent", record.consentStatus], ["Registration date", record.registeredAt], ["Cohort", record.cohort], ["Age band", record.ageBand]]
-    : section === "samples" && "donorId" in record
-      ? [["Sample ID", record.id], ["Donor ID", record.donorId], ["Sample type", record.type], ["Collection", record.collectionDate], ["Status", record.status], ["Storage unit", record.storageUnitId], ["Lineage", record.lineageAvailable ? "Recorded" : "No relationship recorded"], ["Processing", data.processing.filter((event) => event.inputSampleIds.includes(record.id) || event.outputSampleIds.includes(record.id)).map((event) => event.id).join(", ") || "None"], ["Experiments", data.experiments.filter((experiment) => experiment.sampleIds.includes(record.id)).map((experiment) => experiment.id).join(", ") || "None"], ["Sequencing results", data.results.filter((result) => result.sampleId === record.id).map((result) => result.id).join(", ") || "None"]]
-      : "processType" in record
-        ? [["Event ID", record.id], ["Process type", record.processType], ["Date", record.date], ["Researcher", record.researcher], ["Input samples", record.inputSampleIds.join(", ")], ["Output samples", record.outputSampleIds.join(", ")]]
-               : "sampleIds" in record
-          ? [["Experiment ID", record.id], ["Type", record.type], ["Researcher", record.researcher], ["Dates", `${record.startDate} to ${record.endDate}`], ["Associated samples", record.sampleIds.join(", ")], ["Status", record.status]]
-          : [];
-  return <div>{entries.map(([label, value]) => <div key={label} className="detail-block"><div className="detail-label">{label}</div><div className="detail-value">{value || "None"}</div></div>)}</div>;
+      try {
+        const response = await fetch("/api/audit-logs?limit=100", {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+          throw new Error(
+            result.message || "Could not load audit history."
+          );
+        }
+
+        if (!cancelled) {
+          setEntries(result.audit_logs ?? []);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Could not load audit history."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadAuditLogs();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <>
+      <PageHeading
+        eyebrow="Activity history"
+        title="Audit log"
+        subtitle="Review recorded database actions and sample status changes."
+      />
+
+      <Panel
+        title="Audit records"
+        caption={`${entries.length} recorded ${
+          entries.length === 1 ? "event" : "events"
+        }`}
+      >
+        {loading && <Notice>Loading audit history...</Notice>}
+
+        {error && <Notice warning>{error}</Notice>}
+
+        {!loading && !error && entries.length === 0 && (
+          <EmptyState
+            title="No audit records available"
+            detail="No audit events have been recorded yet."
+          />
+        )}
+
+        {!loading && !error && entries.length > 0 && (
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Audit ID</th>
+                  <th>Action</th>
+                  <th>Table</th>
+                  <th>Record ID</th>
+                  <th>User ID</th>
+                  <th>Timestamp</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((entry) => (
+                  <tr key={entry.audit_id}>
+                    <td>{entry.audit_id}</td>
+                    <td>
+                      <Badge tone="info">{entry.action}</Badge>
+                    </td>
+                    <td>{entry.table_name ?? "—"}</td>
+                    <td>{entry.record_id ?? "—"}</td>
+                    <td>{entry.user_id ?? "System / unknown"}</td>
+                    <td>
+                      {new Date(entry.action_timestamp).toLocaleString()}
+                    </td>
+                    <td>
+                      <span style={{ whiteSpace: "pre-wrap" }}>
+                        {entry.details ?? "—"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+    </>
+  );
 }

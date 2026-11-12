@@ -1,13 +1,39 @@
+﻿
 "use client";
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Activity, Boxes, ClipboardList, Dna, FlaskConical, GitBranch, LayoutDashboard, Menu, Microscope, ShieldCheck, Users, X } from "lucide-react";
-import { useDemoData } from "@/components/demo-data-provider";
-import { Badge, Notice, PageHeading, Panel, useToast } from "@/components/ui";
+import {
+  Activity,
+  Boxes,
+  ClipboardList,
+  Dna,
+  FlaskConical,
+  GitBranch,
+  LayoutDashboard,
+  Menu,
+  Microscope,
+  ShieldCheck,
+  Users,
+  X,
+} from "lucide-react";
+
+import {
+  Badge,
+  Notice,
+  PageHeading,
+  Panel,
+  useToast,
+} from "@/components/ui";
+
 import { Dashboard } from "@/components/workspace-dashboard";
-import { DonorForm, ExperimentForm, ProcessingForm, SampleForm } from "@/components/workspace-forms";
+import {
+  DonorForm,
+  ExperimentForm,
+  ProcessingForm,
+  SampleForm,
+} from "@/components/workspace-forms";
 import { LineageExplorer } from "@/components/workspace-lineage";
 import { RecordsPage } from "@/components/workspace-records";
 import type { UserRole } from "@/lib/types";
@@ -26,21 +52,31 @@ const navItems = [
 ];
 
 const titles: Record<string, string> = {
-  dashboard: "Overview", donors: "Donors", samples: "Samples", lineage: "Sample lineage",
-  processing: "Processing", experiments: "Experiments", sequencing: "Sequencing results",
-  storage: "Storage", audit: "Activity log", management: "User & roles", login: "Sign in",
+  dashboard: "Overview",
+  donors: "Donors",
+  samples: "Samples",
+  lineage: "Sample lineage",
+  processing: "Processing",
+  experiments: "Experiments",
+  sequencing: "Sequencing results",
+  storage: "Storage",
+  audit: "Activity log",
+  management: "User & roles",
+  login: "Sign in",
 };
-
 
 export function Workspace() {
   const pathname = usePathname();
   const router = useRouter();
+
   const section = pathname.split("/")[1] || "dashboard";
-  const { data, role, setRole } = useDemoData();
+
+  const [role, setRole] = useState<UserRole>("Researcher");
   const [modal, setModal] = useState("");
   const [editingDonorId, setEditingDonorId] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
+
   const { show, Toast } = useToast();
 
   useEffect(() => {
@@ -72,7 +108,7 @@ export function Workspace() {
 
         const databaseRole = result.user.role;
         const frontendRole =
-          databaseRole === "Admin" ? "Administrator" : databaseRole;
+          databaseRole === "Admin" ? "Administrator" : databaseRole === "Lab Technician" ? "Lab Technician" : "Researcher";
 
         setRole(frontendRole as UserRole);
 
@@ -95,7 +131,7 @@ export function Workspace() {
     return () => {
       active = false;
     };
-  }, [section, router, setRole]);
+  }, [section, router]);
 
   async function handleLogout() {
     try {
@@ -104,6 +140,7 @@ export function Workspace() {
         credentials: "include",
       });
     } finally {
+      setRole("Researcher");
       router.replace("/login");
       router.refresh();
     }
@@ -132,10 +169,15 @@ export function Workspace() {
           className="brand"
           aria-label="Genomic Biobank overview"
         >
-          <span className="brand-mark"><Dna size={19} /></span>
+          <span className="brand-mark">
+            <Dna size={19} />
+          </span>
+
           <span className="brand-copy">
             <span className="brand-name">GENOMIC BIOBANK</span>
-            <span className="brand-caption">Sample lineage repository</span>
+            <span className="brand-caption">
+              Sample lineage repository
+            </span>
           </span>
         </Link>
 
@@ -143,7 +185,11 @@ export function Workspace() {
           (group) => (
             <div key={group}>
               <div className="nav-caption">{group}</div>
-              <nav className="nav-list" aria-label={`${group} navigation`}>
+
+              <nav
+                className="nav-list"
+                aria-label={`${group} navigation`}
+              >
                 {navItems
                   .filter(
                     (item) =>
@@ -176,9 +222,9 @@ export function Workspace() {
           <div className="demo-note">
             <span className="demo-dot" />
             <span>
-              Mixed database and demo data
+              Database-backed workspace
               <br />
-              Some modules use demo data
+              PostgreSQL and MongoDB
             </span>
           </div>
         </div>
@@ -194,14 +240,17 @@ export function Workspace() {
             >
               {mobileOpen ? <X size={16} /> : <Menu size={16} />}
             </button>
+
             Repository&nbsp; / &nbsp;{titles[section] ?? "Overview"}
           </div>
 
           <div className="top-actions">
-            <span className="badge info">PARTIAL DB INTEGRATION</span>
+            <span className="badge info">
+              DATABASE INTEGRATION
+            </span>
 
             <div className="avatar" aria-label={`${role} account`}>
-              {role === "Administrator" ? "AD" : "RS"}
+              {role === "Administrator" ? "AD" : role === "Lab Technician" ? "LT" : "RS"}
             </div>
 
             <button
@@ -216,6 +265,7 @@ export function Workspace() {
 
         <main className="main-content">
           {section === "dashboard" && <Dashboard />}
+
           {section === "lineage" && <LineageExplorer />}
 
           {section === "management" && role === "Administrator" && (
@@ -236,7 +286,10 @@ export function Workspace() {
           ].includes(section) && (
             <RecordsPage
               section={section}
-              onAdd={() => setModal(section)}
+              onAdd={() => {
+                setEditingDonorId("");
+                setModal(section);
+              }}
               onEditDonor={(id) => {
                 setEditingDonorId(id);
                 setModal("edit-donor");
@@ -249,10 +302,11 @@ export function Workspace() {
       {modal && (
         <EntryModal
           type={modal}
-          donor={data.donors.find(
-            (donor) => donor.id === editingDonorId
-          )}
-          close={() => setModal("")}
+          initialDonorId={editingDonorId}
+          close={() => {
+            setModal("");
+            setEditingDonorId("");
+          }}
           done={(message) => {
             setModal("");
             setEditingDonorId("");
@@ -266,15 +320,19 @@ export function Workspace() {
   );
 }
 
-
-
-function LoginPage({ onLogin }: { onLogin: (role: UserRole) => void }) {
+function LoginPage({
+  onLogin,
+}: {
+  onLogin: (role: UserRole) => void;
+}) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
+  async function handleLogin(
+    event: React.FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
     setError("");
     setLoading(true);
@@ -292,13 +350,13 @@ function LoginPage({ onLogin }: { onLogin: (role: UserRole) => void }) {
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.error || "Login failed. Check your credentials.");
+        setError(data.message || data.error || "Login failed. Check your credentials.");
         return;
       }
 
       const databaseRole = data.user.role;
       const frontendRole =
-        databaseRole === "Admin" ? "Administrator" : databaseRole;
+        databaseRole === "Admin" ? "Administrator" : databaseRole === "Lab Technician" ? "Lab Technician" : "Researcher";
 
       onLogin(frontendRole as UserRole);
     } catch {
@@ -319,9 +377,13 @@ function LoginPage({ onLogin }: { onLogin: (role: UserRole) => void }) {
           <span className="brand-mark">
             <Dna size={19} />
           </span>
+
           <span>
             <span className="brand-name">GENOMIC BIOBANK</span>
-            <span className="brand-caption" style={{ display: "block" }}>
+            <span
+              className="brand-caption"
+              style={{ display: "block" }}
+            >
               Research repository
             </span>
           </span>
@@ -331,24 +393,33 @@ function LoginPage({ onLogin }: { onLogin: (role: UserRole) => void }) {
           <div className="eyebrow" style={{ color: "#8dd4ca" }}>
             UNIVERSITY RESEARCH WORKSPACE
           </div>
+
           <h1 className="serif">From sample to discovery.</h1>
+
           <p>
-            A research environment for tracking biobank specimens and
-            exploring their research lineage.
+            A research environment for managing biobank specimens,
+            experiments, storage and sample lineage.
           </p>
         </div>
 
         <div className="demo-note">
           <span className="demo-dot" />
-          <span>All records and metrics are synthetic demonstration data.</span>
+          <span>
+            Secure access to the genomic biobank repository.
+          </span>
         </div>
       </aside>
 
       <main className="login-main">
         <form className="login-form" onSubmit={handleLogin}>
           <div className="eyebrow">SECURE ACCOUNT ACCESS</div>
+
           <h2>Welcome back</h2>
-          <p className="page-subtitle" style={{ marginBottom: 22 }}>
+
+          <p
+            className="page-subtitle"
+            style={{ marginBottom: 22 }}
+          >
             Sign in using your registered biobank account.
           </p>
 
@@ -356,6 +427,7 @@ function LoginPage({ onLogin }: { onLogin: (role: UserRole) => void }) {
             <label className="field-label" htmlFor="login-email">
               Email address
             </label>
+
             <input
               id="login-email"
               className="field-input"
@@ -371,6 +443,7 @@ function LoginPage({ onLogin }: { onLogin: (role: UserRole) => void }) {
             <label className="field-label" htmlFor="login-password">
               Password
             </label>
+
             <input
               id="login-password"
               className="field-input"
@@ -391,7 +464,11 @@ function LoginPage({ onLogin }: { onLogin: (role: UserRole) => void }) {
           <button
             type="submit"
             className="button button-primary"
-            style={{ width: "100%", marginTop: 18, height: 40 }}
+            style={{
+              width: "100%",
+              marginTop: 18,
+              height: 40,
+            }}
             disabled={loading}
           >
             {loading ? "Signing in..." : "Sign in"}
@@ -402,15 +479,95 @@ function LoginPage({ onLogin }: { onLogin: (role: UserRole) => void }) {
   );
 }
 
+function EntryModal({
+  type,
+  initialDonorId,
+  close,
+  done,
+}: {
+  type: string;
+  initialDonorId?: string;
+  close: () => void;
+  done: (message: string) => void;
+}) {
+  if (type === "donors" || type === "edit-donor") {
+    return (
+      <DonorForm
+        initialDonorId={initialDonorId}
+        close={close}
+        done={done}
+      />
+    );
+  }
 
-function EntryModal({ type, donor, close, done }: { type: string; donor?: import("@/lib/types").Donor; close: () => void; done: (message: string) => void }) {
-  if (type === "donors" || type === "edit-donor") return <DonorForm initialDonor={donor} close={close} done={done} />;
-  if (type === "samples") return <SampleForm close={close} done={done} />;
-  if (type === "processing") return <ProcessingForm close={close} done={done} />;
-  if (type === "experiments") return <ExperimentForm close={close} done={done} />;
+  if (type === "samples") {
+    return <SampleForm close={close} done={done} />;
+  }
+
+  if (type === "processing") {
+    return <ProcessingForm close={close} done={done} />;
+  }
+
+  if (type === "experiments") {
+    return <ExperimentForm close={close} done={done} />;
+  }
+
   return null;
 }
 
 function ManagementPage({ role }: { role: UserRole }) {
-  return <><PageHeading eyebrow="Administration" title="User & role management" subtitle="Demonstration of role-specific access. Enforcement is frontend-only." /><div className="grid" style={{ gridTemplateColumns: "repeat(2, minmax(0,1fr))" }}><Panel title="Administrator" caption="Full access in this demo"><div className="detail-value">Manage records, view activity, and access this page</div><Badge tone={role === "Administrator" ? "success" : ""}>{role === "Administrator" ? "Active demo role" : "Available role"}</Badge></Panel><Panel title="Researcher" caption="Research operations access"><div className="detail-value">View research workspace and create demonstration records</div><Badge tone={role === "Researcher" ? "success" : ""}>{role === "Researcher" ? "Active demo role" : "Available role"}</Badge></Panel></div><div style={{ marginTop: 16 }}><Notice warning>These role restrictions exist only in the frontend. Production authorization must be enforced by the backend. No actual user accounts are stored.</Notice></div></>;
+  return (
+    <>
+      <PageHeading
+        eyebrow="Administration"
+        title="User & role management"
+        subtitle="Review the roles used by the genomic biobank application."
+      />
+
+      <div
+        className="grid"
+        style={{
+          gridTemplateColumns: "repeat(2, minmax(0,1fr))",
+        }}
+      >
+        <Panel
+          title="Administrator"
+          caption="Administrative access"
+        >
+          <div className="detail-value">
+            Manage repository records and access administrative
+            functions.
+          </div>
+
+          <Badge tone={role === "Administrator" ? "success" : ""}>
+            {role === "Administrator" ? "Current role" : "Application role"}
+          </Badge>
+        </Panel>
+
+        <Panel
+          title="Researcher"
+          caption="Research workspace access"
+        >
+          <div className="detail-value">
+            Access research records and permitted research operations.
+          </div>
+
+          <Badge tone={role === "Researcher" ? "success" : ""}>
+            {role === "Researcher" ? "Current role" : "Application role"}
+          </Badge>
+        </Panel>
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <Notice>
+          User authentication and role authorization are enforced
+          through the backend. This page currently provides role
+          information; user account creation and editing are not
+          implemented here.
+        </Notice>
+      </div>
+    </>
+  );
 }
+
+

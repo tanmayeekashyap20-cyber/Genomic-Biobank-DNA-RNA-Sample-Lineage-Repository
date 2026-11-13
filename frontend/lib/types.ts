@@ -99,6 +99,8 @@ export interface DatabaseSample {
 export interface DatabaseDonor {
   donor_id: string;
   full_name: string;
+  registration_date: string;
+  consent_status: string | null;
 }
 /* PostgreSQL-backed record types */
 
@@ -190,5 +192,7 @@ export interface DatabaseSampleStorage {
   temperature: number | null;
   storage_status: string;
 }
+
+
 
 

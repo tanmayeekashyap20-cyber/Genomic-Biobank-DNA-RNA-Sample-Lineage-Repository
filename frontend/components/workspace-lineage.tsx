@@ -51,11 +51,46 @@ interface GraphLineage {
   relationship_type: string;
 }
 
+interface GraphProcess {
+  process_id: string;
+  process_type: string;
+}
+
+interface GraphSampleProcess {
+  process_id: string;
+  input_sample_id: string;
+  output_sample_id: string;
+}
+
+interface GraphExperiment {
+  experiment_id: string;
+  experiment_name: string;
+  status: string;
+}
+
+interface GraphExperimentSample {
+  experiment_id: string;
+  sample_id: string;
+}
+
+interface GraphSequencingResult {
+  sequencing_result_id: string;
+  sample_id: string;
+  experiment_id: string | null;
+  sequencing_platform: string | null;
+  result_status: string;
+}
+
 interface GraphApiResponse {
   success: boolean;
   message?: string;
   donors?: GraphDonor[];
   lineage?: GraphLineage[];
+  processes?: GraphProcess[];
+  sampleProcesses?: GraphSampleProcess[];
+  experiments?: GraphExperiment[];
+  experimentSamples?: GraphExperimentSample[];
+  sequencingResults?: GraphSequencingResult[];
 }
 
 interface MongoLineageEvent {
@@ -448,6 +483,11 @@ export function LineageExplorer() {
         setEventsLoading(true);
         setEventsError("");
         setEvents([]);
+
+        if (!sampleId) {
+          setEvents([]);
+          return;
+        }
 
         const response = await fetch(
           `/api/lineage-events?sampleId=${encodeURIComponent(sampleId)}&limit=100&skip=0`
@@ -966,6 +1006,9 @@ export function LineageExplorer() {
     </>
   );
 }
+
+
+
 
 
 

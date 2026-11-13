@@ -1,4 +1,4 @@
-﻿
+
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -153,7 +153,7 @@ function getRecordId(record: RecordItem): string {
   }
   if ("storage_id" in record) return String(record.storage_id);
   if ("sample_storage_id" in record) {
-    return String(record.sample_storage_id);
+    return String((record as DatabaseSampleStorage).sample_storage_id);
   }
   return "â€”";
 }
@@ -375,6 +375,10 @@ export function RecordsPage({
     return ["All", ...Array.from(new Set(statuses))];
   }, [currentRecords]);
 
+  if (safeSection === "audit") {
+    return <AuditLogPanel />;
+  }
+
   return (
     <>
       <PageHeading
@@ -396,15 +400,6 @@ export function RecordsPage({
       {error && (
         <div style={{ marginBottom: 15 }}>
           <Notice warning>{error}</Notice>
-        </div>
-      )}
-
-      {safeSection === "audit" && (
-        <div style={{ marginBottom: 15 }}>
-          <Notice>
-            The combined records endpoint does not currently return
-            audit log entries. No simulated activity is displayed.
-          </Notice>
         </div>
       )}
 
@@ -944,6 +939,7 @@ function AuditLogPanel() {
     };
   }, []);
 
+
   return (
     <>
       <PageHeading
@@ -1011,3 +1007,6 @@ function AuditLogPanel() {
     </>
   );
 }
+
+
+

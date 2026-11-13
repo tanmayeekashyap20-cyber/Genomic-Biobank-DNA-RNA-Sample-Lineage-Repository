@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    let sampleId: number | undefined;
+    let sampleId: number | null | undefined;
 
     if (sampleIdValue !== null) {
       sampleId = parsePositiveInteger(sampleIdValue, 0);
@@ -218,3 +218,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

@@ -1,4 +1,4 @@
-export type UserRole = "Administrator" | "Researcher";
+export type UserRole = "Administrator" | "Researcher" | "Lab Technician";
 export type SampleType = "DNA" | "RNA" | "Other";
 export type SampleStatus = "Available" | "Processing" | "Archived" | "Depleted";
 
@@ -110,4 +110,88 @@ export interface DatabaseSample {
 export interface DatabaseDonor {
   donor_id: string;
   full_name: string;
+  date_of_birth: string | null;
+  gender: string | null;
+  phone_number: string | null;
+  email: string | null;
+  address: string | null;
+  registration_date: string;
+}
+
+export interface DatabaseProcess {
+  process_id: number;
+  process_type: string;
+  process_date: string;
+  performed_by: number;
+  researcher_name: string;
+  description: string | null;
+}
+
+export interface DatabaseSampleProcess {
+  sample_process_id: number;
+  process_id: number;
+  process_type: string;
+  input_sample_id: number;
+  output_sample_id: number;
+  quantity: number | null;
+  unit: string | null;
+}
+
+export interface DatabaseExperiment {
+  experiment_id: number;
+  experiment_name: string;
+  experiment_type: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  researcher_id: number;
+  researcher_name: string;
+  status: string;
+  description: string | null;
+}
+
+export interface DatabaseExperimentSample {
+  experiment_sample_id: number;
+  experiment_id: number;
+  experiment_name: string;
+  sample_id: number;
+  sample_status: string;
+  date_added: string;
+  notes: string | null;
+}
+
+export interface DatabaseStorageUnit {
+  storage_id: number;
+  freezer_id: string | null;
+  rack_no: string | null;
+  box_no: string | null;
+  position: string | null;
+  temperature: number | null;
+  status: string;
+}
+
+export interface DatabaseSampleStorage {
+  sample_storage_id: number;
+  sample_id: number;
+  storage_id: number;
+  stored_date: string;
+  removed_date: string | null;
+  freezer_id: string | null;
+  rack_no: string | null;
+  box_no: string | null;
+  position: string | null;
+  temperature: number | null;
+  storage_status: string;
+}
+
+export interface DatabaseSequencingResult {
+  sequencing_result_id: number;
+  sample_id: number;
+  experiment_id: number | null;
+  sequencing_platform: string | null;
+  run_date: string | null;
+  file_path: string | null;
+  result_status: string;
+  notes: string | null;
+  experiment_name: string | null;
+  sample_status: string;
 }

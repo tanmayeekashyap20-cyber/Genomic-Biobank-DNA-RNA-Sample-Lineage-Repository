@@ -5,7 +5,7 @@ import { DemoDataProvider } from "@/components/demo-data-provider";
 
 export const metadata: Metadata = {
   title: "Genomic Biobank | Sample Lineage Repository",
-  description: "Synthetic demonstration workspace for biobank sample operations and lineage exploration.",
+  description: "Database-backed workspace for biobank sample operations and lineage exploration.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

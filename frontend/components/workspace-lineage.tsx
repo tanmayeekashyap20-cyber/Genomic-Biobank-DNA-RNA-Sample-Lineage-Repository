@@ -17,6 +17,7 @@ import { Search } from "lucide-react";
 import {
   Badge,
   EmptyState,
+  Notice,
   PageHeading,
   Panel,
 } from "@/components/ui";
@@ -176,6 +177,8 @@ export function LineageExplorer() {
 
   const [graphLoading, setGraphLoading] = useState(true);
   const [graphError, setGraphError] = useState("");
+  const [graphRetryKey, setGraphRetryKey] = useState(0);
+  const [eventsRetryKey, setEventsRetryKey] = useState(0);
 
   const [nodes, setNodes, onNodesChange] =
     useNodesState<GraphNode>([]);
@@ -330,7 +333,7 @@ export function LineageExplorer() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [graphRetryKey]);
 
   // Load real event history from MongoDB.
   useEffect(() => {
@@ -373,7 +376,7 @@ export function LineageExplorer() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [eventsRetryKey]);
 
   // Apply graph filters.
   useEffect(() => {
@@ -488,10 +491,8 @@ export function LineageExplorer() {
         </Panel>
       ) : graphError ? (
         <Panel title="Lineage graph">
-          <EmptyState
-            title="Unable to load graph"
-            detail={graphError}
-          />
+          <Notice warning>{graphError}</Notice>
+          <button type="button" className="button" style={{ marginTop: 12 }} onClick={() => setGraphRetryKey((current) => current + 1)}>Retry graph load</button>
         </Panel>
       ) : graph.nodes.length === 0 ? (
         <Panel title="Lineage graph">
@@ -753,9 +754,7 @@ export function LineageExplorer() {
                             Loading event history...
                           </div>
                         ) : eventsError ? (
-                          <div className="detail-value">
-                            {eventsError}
-                          </div>
+                          <Notice warning>{eventsError} <button type="button" className="button" onClick={() => setEventsRetryKey((current) => current + 1)}>Retry</button></Notice>
                         ) : selectedSampleEvents.length > 0 ? (
                           <div
                             style={{

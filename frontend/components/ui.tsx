@@ -16,12 +16,12 @@ export function Panel({ title, caption, children, action, className = "" }: { ti
 }
 
 export function EmptyState({ title, detail }: { title: string; detail: string }) {
-  return <div className="empty-state"><div><CircleHelp size={22} /><strong>{title}</strong><span>{detail}</span></div></div>;
+  return <div className="empty-state" aria-live="polite"><div><CircleHelp size={22} /><strong>{title}</strong><span>{detail}</span></div></div>;
 }
 
 export function Notice({ children, warning = false }: { children: React.ReactNode; warning?: boolean }) {
   const Icon = warning ? AlertTriangle : Check;
-  return <div className="notice"><Icon size={15} aria-hidden="true" /><span>{children}</span></div>;
+  return <div className="notice" role={warning ? "alert" : "status"} aria-live={warning ? "assertive" : "polite"}><Icon size={15} aria-hidden="true" /><span>{children}</span></div>;
 }
 
 export function Modal({ title, subtitle, onClose, children, footer }: { title: string; subtitle?: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode }) {

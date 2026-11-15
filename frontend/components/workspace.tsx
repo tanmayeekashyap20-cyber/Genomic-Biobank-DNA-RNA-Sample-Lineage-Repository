@@ -7,10 +7,28 @@ import { Activity, Boxes, ClipboardList, Dna, FlaskConical, GitBranch, LayoutDas
 import { useDemoData } from "@/components/demo-data-provider";
 import { Badge, Notice, PageHeading, Panel, useToast } from "@/components/ui";
 import { Dashboard } from "@/components/workspace-dashboard";
-import { DonorForm, ExperimentForm, ProcessingForm, SampleForm } from "@/components/workspace-forms";
+import {
+  DonorForm,
+  ExperimentForm,
+  ProcessingForm,
+  SampleForm,
+  SequencingResultForm,
+  StorageAssignmentForm,
+  StorageUnitForm,
+} from "@/components/workspace-forms";
 import { LineageExplorer } from "@/components/workspace-lineage";
 import { RecordsPage } from "@/components/workspace-records";
-import type { UserRole } from "@/lib/types";
+import type {
+  DatabaseDonor,
+  DatabaseExperiment,
+  DatabaseExperimentSample,
+  DatabaseProcess,
+  DatabaseSample,
+  DatabaseSampleProcess,
+  DatabaseSequencingResult,
+  DatabaseStorageUnit,
+  UserRole,
+} from "@/lib/types";
 
 const navItems = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard, group: "Workspace" },
@@ -22,25 +40,41 @@ const navItems = [
   { href: "/sequencing", label: "Sequencing results", icon: Activity, group: "Research" },
   { href: "/storage", label: "Storage", icon: Boxes, group: "Operations" },
   { href: "/audit", label: "Activity log", icon: ClipboardList, group: "Operations" },
-  { href: "/management", label: "User & roles", icon: ShieldCheck, group: "Administration", admin: true },
+  { href: "/management", label: "Role permissions", icon: ShieldCheck, group: "Administration", admin: true },
 ];
 
 const titles: Record<string, string> = {
   dashboard: "Overview", donors: "Donors", samples: "Samples", lineage: "Sample lineage",
   processing: "Processing", experiments: "Experiments", sequencing: "Sequencing results",
-  storage: "Storage", audit: "Activity log", management: "User & roles", login: "Sign in",
+  storage: "Storage", audit: "Activity log", management: "Role permissions", login: "Sign in",
 };
+
+function toFrontendRole(role: unknown): UserRole | null {
+  if (role === "Admin") return "Administrator";
+  if (role === "Researcher" || role === "Lab Technician") return role;
+  return null;
+}
 
 
 export function Workspace() {
   const pathname = usePathname();
   const router = useRouter();
   const section = pathname.split("/")[1] || "dashboard";
-  const { data, role, setRole } = useDemoData();
+  const { role, setRole } = useDemoData();
   const [modal, setModal] = useState("");
-  const [editingDonorId, setEditingDonorId] = useState("");
+  const [editingDonor, setEditingDonor] = useState<DatabaseDonor>();
+  const [editingSample, setEditingSample] = useState<DatabaseSample>();
+  const [editingProcess, setEditingProcess] = useState<DatabaseProcess>();
+  const [editingProcessLinks, setEditingProcessLinks] = useState<DatabaseSampleProcess[]>([]);
+  const [editingExperiment, setEditingExperiment] = useState<DatabaseExperiment>();
+  const [editingExperimentLinks, setEditingExperimentLinks] = useState<DatabaseExperimentSample[]>([]);
+  const [editingStorageUnit, setEditingStorageUnit] = useState<DatabaseStorageUnit>();
+  const [editingSequencingResult, setEditingSequencingResult] = useState<DatabaseSequencingResult>();
+  const [donorRefreshKey, setDonorRefreshKey] = useState(0);
+  const [recordsRefreshKey, setRecordsRefreshKey] = useState(0);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
+  const [authError, setAuthError] = useState("");
   const { show, Toast } = useToast();
 
   useEffect(() => {
@@ -48,11 +82,38 @@ export function Workspace() {
 
     async function checkSession() {
       if (section === "login") {
-        setAuthChecked(true);
+        setAuthChecked(false);
+        try {
+          const response = await fetch("/api/auth/me", {
+            credentials: "include",
+            cache: "no-store",
+          });
+          if (response.status === 401) {
+            if (active) setAuthChecked(true);
+            return;
+          }
+          const result = await response.json();
+          if (!response.ok) {
+            throw new Error(result.error || `Session check failed (HTTP ${response.status}).`);
+          }
+          const frontendRole = toFrontendRole(result.user?.role);
+          if (!frontendRole) {
+            throw new Error("The server returned an unsupported account role.");
+          }
+          if (!active) return;
+          setRole(frontendRole);
+          router.replace("/dashboard");
+        } catch (error) {
+          if (active) {
+            setAuthError(error instanceof Error ? error.message : "Unable to verify the current session.");
+            setAuthChecked(true);
+          }
+        }
         return;
       }
 
       setAuthChecked(false);
+      setAuthError("");
 
       try {
         const response = await fetch("/api/auth/me", {
@@ -61,60 +122,93 @@ export function Workspace() {
           cache: "no-store",
         });
 
-        if (!response.ok) {
+        if (response.status === 401) {
           router.replace("/login");
           return;
         }
 
         const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || `Session check failed (HTTP ${response.status}).`);
+        }
 
         if (!active) return;
 
-        const databaseRole = result.user.role;
-        const frontendRole =
-          databaseRole === "Admin" ? "Administrator" : databaseRole;
-
-        setRole(frontendRole as UserRole);
-
-        if (
-          frontendRole === "Researcher" &&
-          section === "management"
-        ) {
-          router.replace("/dashboard");
-          return;
+        const frontendRole = toFrontendRole(result.user?.role);
+        if (!frontendRole) {
+          throw new Error("The server returned an unsupported account role.");
         }
 
+        setRole(frontendRole);
         setAuthChecked(true);
-      } catch {
-        router.replace("/login");
+      } catch (error) {
+        if (!active) return;
+        setAuthError(error instanceof Error ? error.message : "Unable to verify the current session.");
+        setAuthChecked(true);
       }
     }
 
-    checkSession();
+    void checkSession();
+    const sessionTimer = section === "login"
+      ? undefined
+      : window.setInterval(async () => {
+          try {
+            const response = await fetch("/api/auth/me", {
+              credentials: "include",
+              cache: "no-store",
+            });
+            if (response.status === 401) {
+              router.replace("/login");
+            } else if (!response.ok) {
+              show(`Session check failed (HTTP ${response.status}).`);
+            } else {
+              const result = await response.json();
+              const currentRole = toFrontendRole(result.user?.role);
+              if (!currentRole) {
+                router.replace("/login");
+              } else {
+                setRole(currentRole);
+              }
+            }
+          } catch (error) {
+            show(error instanceof Error ? error.message : "Session revalidation failed.");
+          }
+        }, 60_000);
 
     return () => {
       active = false;
+      if (sessionTimer !== undefined) window.clearInterval(sessionTimer);
     };
-  }, [section, router, setRole]);
+  }, [section, router, setRole, show]);
 
   async function handleLogout() {
     try {
-      await fetch("/api/auth/logout", {
+      const response = await fetch("/api/auth/logout", {
         method: "POST",
         credentials: "include",
       });
-    } finally {
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.message || "The server could not end this session.");
+      }
       router.replace("/login");
       router.refresh();
+    } catch (error) {
+      show(error instanceof Error ? error.message : "Could not sign out. Please try again.");
     }
   }
 
   if (section === "login") {
+    if (!authChecked) {
+      return <div className="login-page" role="status">Checking for an active session...</div>;
+    }
     return (
       <LoginPage
+        sessionError={authError}
         onLogin={(selectedRole) => {
           setRole(selectedRole);
           router.push("/dashboard");
+          router.refresh();
         }}
       />
     );
@@ -124,9 +218,51 @@ export function Workspace() {
     return <div className="login-page">Verifying your session...</div>;
   }
 
+  if (authError) {
+    return (
+      <div className="login-page">
+        <Panel title="Unable to verify your session">
+          <Notice warning>{authError}</Notice>
+          <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+            <button type="button" className="button button-primary" onClick={() => window.location.reload()}>Retry</button>
+            <Link className="button" href="/login">Go to sign in</Link>
+          </div>
+        </Panel>
+      </div>
+    );
+  }
+
+  if (role === "Lab Technician") {
+    return (
+      <div className="login-page">
+        <Panel title="Workspace access unavailable">
+          <Notice warning>
+            You are signed in as a Lab Technician. The current record and dashboard APIs authorize Admin and Researcher roles only, so no workspace data or write actions are available for this account.
+          </Notice>
+          <button type="button" className="button button-primary" onClick={handleLogout}>
+            Sign out
+          </button>
+        </Panel>
+      </div>
+    );
+  }
+
+  if (section === "management" && role !== "Administrator") {
+    return (
+      <div className="login-page">
+        <Panel title="Permission required">
+          <Notice warning>
+            Role permissions are available to Administrators only. Your Researcher account can use the authorized record and research modules.
+          </Notice>
+          <Link className="button button-primary" href="/dashboard">Return to overview</Link>
+        </Panel>
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${mobileOpen ? "mobile-open" : ""}`}>
+      <aside id="workspace-navigation" className={`sidebar ${mobileOpen ? "mobile-open" : ""}`}>
         <Link
           href="/dashboard"
           className="brand"
@@ -176,13 +312,21 @@ export function Workspace() {
           <div className="demo-note">
             <span className="demo-dot" />
             <span>
-              Mixed database and demo data
+              PostgreSQL record APIs
               <br />
-              Some modules use demo data
+              MongoDB lineage events
             </span>
           </div>
         </div>
       </aside>
+      {mobileOpen && (
+        <button
+          type="button"
+          className="sidebar-scrim"
+          aria-label="Close navigation"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
 
       <div className="main-area">
         <header className="topbar">
@@ -191,6 +335,8 @@ export function Workspace() {
               className="icon-button mobile-menu"
               onClick={() => setMobileOpen(!mobileOpen)}
               aria-label="Toggle navigation"
+              aria-expanded={mobileOpen}
+              aria-controls="workspace-navigation"
             >
               {mobileOpen ? <X size={16} /> : <Menu size={16} />}
             </button>
@@ -198,7 +344,8 @@ export function Workspace() {
           </div>
 
           <div className="top-actions">
-            <span className="badge info">PARTIAL DB INTEGRATION</span>
+            <span className="badge info">DATABASE INTEGRATION</span>
+            <span className="badge">{role}</span>
 
             <div className="avatar" aria-label={`${role} account`}>
               {role === "Administrator" ? "AD" : "RS"}
@@ -236,9 +383,52 @@ export function Workspace() {
           ].includes(section) && (
             <RecordsPage
               section={section}
-              onAdd={() => setModal(section)}
-              onEditDonor={(id) => {
-                setEditingDonorId(id);
+              onAdd={() => setModal(section === "storage" ? "storage-unit" : section)}
+              onAssignStorage={() => setModal("storage")}
+              donorRefreshKey={donorRefreshKey}
+              recordsRefreshKey={recordsRefreshKey}
+              canWriteRecords={role === "Administrator" || role === "Researcher"}
+              canDeleteDonor={role === "Administrator"}
+              canDeleteSample={role === "Administrator"}
+              canDeleteResearchRecords={role === "Administrator"}
+              canDeleteStorageUnit={role === "Administrator"}
+              canDeleteSequencingResult={role === "Administrator"}
+              onRelatedRecordChanged={(message) => {
+                setRecordsRefreshKey((current) => current + 1);
+                show(message);
+              }}
+              onDonorDeleted={() => {
+                setDonorRefreshKey((current) => current + 1);
+                show("Donor deleted successfully.");
+              }}
+              onEditSample={(sample) => {
+                setEditingSample(sample);
+                setModal("edit-sample");
+              }}
+              onEditProcess={(process, links) => {
+                setEditingProcess(process);
+                setEditingProcessLinks(links);
+                setModal("edit-processing");
+              }}
+              onEditExperiment={(experiment, links) => {
+                setEditingExperiment(experiment);
+                setEditingExperimentLinks(links);
+                setModal("edit-experiment");
+              }}
+              onEditStorageUnit={(storageUnit) => {
+                setEditingStorageUnit(storageUnit);
+                setModal("edit-storage-unit");
+              }}
+              onEditSequencingResult={(result) => {
+                setEditingSequencingResult(result);
+                setModal("edit-sequencing");
+              }}
+              onSampleDeleted={() => {
+                setRecordsRefreshKey((current) => current + 1);
+                show("Sample deleted successfully.");
+              }}
+              onEditDonor={(donor) => {
+                setEditingDonor(donor);
                 setModal("edit-donor");
               }}
             />
@@ -249,13 +439,39 @@ export function Workspace() {
       {modal && (
         <EntryModal
           type={modal}
-          donor={data.donors.find(
-            (donor) => donor.id === editingDonorId
-          )}
-          close={() => setModal("")}
-          done={(message) => {
+          donor={editingDonor}
+          sample={editingSample}
+          process={editingProcess}
+          processLinks={editingProcessLinks}
+          experiment={editingExperiment}
+          experimentLinks={editingExperimentLinks}
+          storageUnit={editingStorageUnit}
+          sequencingResult={editingSequencingResult}
+          close={() => {
             setModal("");
-            setEditingDonorId("");
+            setEditingDonor(undefined);
+            setEditingSample(undefined);
+            setEditingProcess(undefined);
+            setEditingProcessLinks([]);
+            setEditingExperiment(undefined);
+            setEditingExperimentLinks([]);
+            setEditingStorageUnit(undefined);
+            setEditingSequencingResult(undefined);
+          }}
+          done={(message) => {
+            if (modal === "donors" || modal === "edit-donor") {
+              setDonorRefreshKey((current) => current + 1);
+            }
+            setRecordsRefreshKey((current) => current + 1);
+            setModal("");
+            setEditingDonor(undefined);
+            setEditingSample(undefined);
+            setEditingProcess(undefined);
+            setEditingProcessLinks([]);
+            setEditingExperiment(undefined);
+            setEditingExperimentLinks([]);
+            setEditingStorageUnit(undefined);
+            setEditingSequencingResult(undefined);
             show(message);
           }}
         />
@@ -268,7 +484,7 @@ export function Workspace() {
 
 
 
-function LoginPage({ onLogin }: { onLogin: (role: UserRole) => void }) {
+function LoginPage({ onLogin, sessionError }: { onLogin: (role: UserRole) => void; sessionError: string }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -296,11 +512,12 @@ function LoginPage({ onLogin }: { onLogin: (role: UserRole) => void }) {
         return;
       }
 
-      const databaseRole = data.user.role;
-      const frontendRole =
-        databaseRole === "Admin" ? "Administrator" : databaseRole;
-
-      onLogin(frontendRole as UserRole);
+      const frontendRole = toFrontendRole(data.user?.role);
+      if (!frontendRole) {
+        setError("The server returned an unsupported account role.");
+        return;
+      }
+      onLogin(frontendRole);
     } catch {
       setError("Unable to connect to the authentication server.");
     } finally {
@@ -340,7 +557,7 @@ function LoginPage({ onLogin }: { onLogin: (role: UserRole) => void }) {
 
         <div className="demo-note">
           <span className="demo-dot" />
-          <span>All records and metrics are synthetic demonstration data.</span>
+          <span>Use an authorized account and follow institutional data-handling requirements.</span>
         </div>
       </aside>
 
@@ -387,6 +604,9 @@ function LoginPage({ onLogin }: { onLogin: (role: UserRole) => void }) {
               {error}
             </p>
           )}
+          {sessionError && (
+            <Notice warning>{sessionError} You may still attempt to sign in.</Notice>
+          )}
 
           <button
             type="submit"
@@ -403,14 +623,60 @@ function LoginPage({ onLogin }: { onLogin: (role: UserRole) => void }) {
 }
 
 
-function EntryModal({ type, donor, close, done }: { type: string; donor?: import("@/lib/types").Donor; close: () => void; done: (message: string) => void }) {
+function EntryModal({
+  type,
+  donor,
+  sample,
+  process,
+  processLinks,
+  experiment,
+  experimentLinks,
+  storageUnit,
+  sequencingResult,
+  close,
+  done,
+}: {
+  type: string;
+  donor?: DatabaseDonor;
+  sample?: DatabaseSample;
+  process?: DatabaseProcess;
+  processLinks: DatabaseSampleProcess[];
+  experiment?: DatabaseExperiment;
+  experimentLinks: DatabaseExperimentSample[];
+  storageUnit?: DatabaseStorageUnit;
+  sequencingResult?: DatabaseSequencingResult;
+  close: () => void;
+  done: (message: string) => void;
+}) {
   if (type === "donors" || type === "edit-donor") return <DonorForm initialDonor={donor} close={close} done={done} />;
-  if (type === "samples") return <SampleForm close={close} done={done} />;
-  if (type === "processing") return <ProcessingForm close={close} done={done} />;
-  if (type === "experiments") return <ExperimentForm close={close} done={done} />;
+  if (type === "samples" || type === "edit-sample") return <SampleForm initialSample={sample} close={close} done={done} />;
+  if (type === "processing" || type === "edit-processing") return <ProcessingForm initialProcess={process} sampleProcesses={processLinks} close={close} done={done} />;
+  if (type === "experiments" || type === "edit-experiment") return <ExperimentForm initialExperiment={experiment} experimentSamples={experimentLinks} close={close} done={done} />;
+  if (type === "storage") return <StorageAssignmentForm close={close} done={done} />;
+  if (type === "storage-unit" || type === "edit-storage-unit") return <StorageUnitForm initialStorageUnit={storageUnit} close={close} done={done} />;
+  if (type === "sequencing" || type === "edit-sequencing") return <SequencingResultForm initialResult={sequencingResult} close={close} done={done} />;
   return null;
 }
 
 function ManagementPage({ role }: { role: UserRole }) {
-  return <><PageHeading eyebrow="Administration" title="User & role management" subtitle="Demonstration of role-specific access. Enforcement is frontend-only." /><div className="grid" style={{ gridTemplateColumns: "repeat(2, minmax(0,1fr))" }}><Panel title="Administrator" caption="Full access in this demo"><div className="detail-value">Manage records, view activity, and access this page</div><Badge tone={role === "Administrator" ? "success" : ""}>{role === "Administrator" ? "Active demo role" : "Available role"}</Badge></Panel><Panel title="Researcher" caption="Research operations access"><div className="detail-value">View research workspace and create demonstration records</div><Badge tone={role === "Researcher" ? "success" : ""}>{role === "Researcher" ? "Active demo role" : "Available role"}</Badge></Panel></div><div style={{ marginTop: 16 }}><Notice warning>These role restrictions exist only in the frontend. Production authorization must be enforced by the backend. No actual user accounts are stored.</Notice></div></>;
+  return (
+    <>
+      <PageHeading eyebrow="Administration" title="Role permissions" subtitle="API-backed role enforcement for the current authenticated account." />
+      <div className="grid" style={{ gridTemplateColumns: "repeat(2, minmax(0,1fr))" }}>
+        <Panel title="Administrator" caption="Admin API role">
+          <div className="detail-value">Access to authorized record APIs, Admin-only deletion actions, and this role information page.</div>
+          <Badge tone={role === "Administrator" ? "success" : ""}>{role === "Administrator" ? "Current role" : "API role"}</Badge>
+        </Panel>
+        <Panel title="Researcher" caption="Research API role">
+          <div className="detail-value">Access to authorized record APIs and record creation/update. Admin-only deletions remain unavailable.</div>
+          <Badge tone={role === "Researcher" ? "success" : ""}>{role === "Researcher" ? "Current role" : "API role"}</Badge>
+        </Panel>
+      </div>
+      <div style={{ marginTop: 16 }}>
+        <Notice warning>
+          The backend does not currently expose account or role-management routes. The API remains authoritative for every operation.
+        </Notice>
+      </div>
+    </>
+  );
 }

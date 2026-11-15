@@ -26,7 +26,7 @@ Authentication uses a JWT session stored in an HttpOnly cookie named `biobank-se
 |---|---|
 | Admin | Full API access, including permitted deletion and administrative endpoints |
 | Researcher | Read and create/update research records; deletion restricted |
-| Lab Technician | Not authorized by the current API role policies |
+| Lab Technician | Can authenticate, but current data endpoints authorize Admin and Researcher only |
 
 ### Common responses
 
@@ -42,6 +42,8 @@ Authentication uses a JWT session stored in an HttpOnly cookie named `biobank-se
 | 500 | Unexpected server error |
 
 Authenticated endpoints require a valid session cookie. Protected routes return JSON responses.
+
+There is currently no audit-log endpoint or user-management endpoint. The frontend does not present demo activity as an audit trail.
 
 ## Endpoint Summary
 
@@ -362,4 +364,3 @@ Admin-only MongoDB connectivity check.
 - Passwords are stored as Argon2 hashes.
 - Session cookies are HttpOnly.
 - Secrets must be configured in environment variables and must not be committed to Git.
-

@@ -47,9 +47,8 @@ Build/lint/typecheck do not establish database connectivity. Admin users can use
 - `components/workspace.tsx` verifies the session, maps database roles to UI roles, hosts navigation, and opens forms.
 - `components/workspace-records.tsx` loads donor, sample, processing, experiment, sequencing, and storage data from existing APIs and renders request loading/error/empty states with retry actions.
 - `components/workspace-forms.tsx` preserves the shared modal/form styling and Zod validation while submitting supported API payloads.
-- `components/workspace-dashboard.tsx` derives metrics/charts from PostgreSQL APIs.
+- `components/workspace-dashboard.tsx` loads repository-wide counts and sample summaries from the PostgreSQL `/api/dashboard` endpoint.
 - `components/workspace-lineage.tsx` combines the PostgreSQL lineage graph with MongoDB event history.
-- `components/demo-data-provider.tsx` still supports legacy/demo surfaces; it is not the source of truth for the live records, dashboard, or lineage modules described above.
 - `lib/auth.ts` and `lib/db.ts` are server-side utilities. `src/lib/mongodb.ts` creates the MongoDB client. API route authorization is authoritative; hiding a button in the frontend is not security enforcement.
 
 The browser uses same-origin `/api/...` routes and cookie credentials. `NEXT_PUBLIC_API_BASE_URL` is not required for these routes.
@@ -57,8 +56,9 @@ The browser uses same-origin `/api/...` routes and cookie credentials. `NEXT_PUB
 ### API integration map
 
 - **Authentication and session:** `/api/auth/login`, `/api/auth/me`, and `/api/auth/logout`; the session is carried in the existing HttpOnly cookie.
-- **Relational records:** `/api/donors`, `/api/samples`, `/api/sample-options`, `/api/consents`, `/api/researchers`, `/api/processes`, `/api/sample-processes`, `/api/experiments`, `/api/experiment-samples`, `/api/storage-units`, `/api/sample-storage`, and `/api/sequencing-results`.
-- **Dashboard:** derives metrics from the donor, sample, experiment, sequencing-result, storage-unit, and sample-storage list APIs.
+- **Relational records:** `/api/donors`, `/api/samples`, `/api/sample-options`, `/api/consents`, `/api/researchers`, `/api/processes`, `/api/sample-processes`, `/api/processing-events`, `/api/experiments`, `/api/experiment-samples`, `/api/experiment-records`, `/api/storage-units`, `/api/sample-storage`, and `/api/sequencing-results`.
+- **Dashboard:** `/api/dashboard` returns complete aggregate counts, sample-type/status summaries, a six-month collection trend, and recent samples; this avoids deriving repository totals from capped list responses.
+- **Audit:** `/api/audit-logs` returns up to 100 audit records and is Admin-only.
 - **Lineage:** `/api/lineage-graph` provides relational graph data; `/api/lineage-events` provides MongoDB event history. The browser does not connect directly to PostgreSQL or MongoDB.
 - **Diagnostics:** `/api/db-check` and `/api/mongodb-test` are existing Admin-only connection checks.
 
@@ -67,7 +67,7 @@ The UI follows the implemented request and response contracts. Consult `../docum
 ## Routes
 
 - `/login` — authenticates against `POST /api/auth/login`.
-- `/dashboard` — donor, sample, experiment, sequencing-result, and storage assignment data from APIs.
+- `/dashboard` — complete PostgreSQL dashboard counts and sample summaries from `/api/dashboard`.
 - `/donors` — PostgreSQL donor list, create/edit, and Admin-only delete.
 - `/samples` — PostgreSQL sample list and registration.
 - `/processing` — PostgreSQL process and sample-process records; edit preserves current sample links and Admin deletion removes links before the process.
@@ -75,16 +75,16 @@ The UI follows the implemented request and response contracts. Consult `../docum
 - `/storage` — PostgreSQL storage-unit create/edit, Admin-only delete, sample assignment/removal, active-location status, and assignment history.
 - `/sequencing` — PostgreSQL result metadata with create/edit and Admin-only delete. Editing preserves sample/experiment links; no read-count or quality metrics are fabricated.
 - `/lineage` — PostgreSQL donor/sample relationships and MongoDB `lineage_events`.
-- `/audit` — displays an explicit unavailable state because there is no audit-log route in the current backend.
+- `/audit` — displays PostgreSQL audit records for Admin users; backend authorization rejects other roles.
 - `/management` — role permissions; there is no user-management API in the current backend.
 
 ## API and database behavior
 
-Use the existing routes described by `../documentation/api_reference.md`; do not infer endpoint contracts from UI labels. API errors are displayed in the relevant view or form. Processing/experiment create requests save the parent and sample relationship separately, so a failed second request can leave the primary record saved; the interface reports this partial outcome. Deletion also requires multiple requests and is not transactional; partial relationship removals are reported and the list refreshes. The APIs cap relationship-list responses at 100, so deletion is blocked when 100 or more matching relationships are loaded because the frontend cannot establish that the list is complete.
+Use the existing routes described by `../documentation/api_reference.md`; do not infer endpoint contracts from UI labels. API errors are displayed in the relevant view or form. Processing event creation and eligible experiment creation use transactional APIs that save the parent and sample relationship together; experiments missing fields required by that API retain the existing separate-request flow, which reports a partial outcome if association creation fails. Deletion also requires multiple requests and is not transactional; partial relationship removals are reported and the list refreshes. The APIs cap relationship-list responses at 100, so deletion is blocked when 100 or more matching relationships are loaded because the frontend cannot establish that the list is complete.
 
 The current UI does not claim support for CRUD operations that have no corresponding implemented interaction. Authorization and role-specific access are enforced by the API. Admin and Researcher accounts can use the current authorized record APIs; delete actions are Admin-only. Lab Technician login is supported, but current data APIs do not authorize workspace records for this role. The UI labels Admin as Administrator. Frontend visibility is not a security boundary.
 
-The donor, sample, process, experiment, sequencing-result, storage-unit, and sample-storage list routes return at most 100 records and do not expose pagination or server-side search. Dashboard totals and client-side search/filtering apply to the API records returned, not necessarily every row in a larger database.
+The donor, sample, process, experiment, sequencing-result, storage-unit, and sample-storage list routes return at most 100 records and do not expose pagination or server-side search. Module lists and their client-side search/filtering apply to the API records returned, while dashboard aggregates come from the dedicated summary endpoint.
 
 At narrow viewports, the sidebar becomes a collapsible navigation drawer, dashboard cards and charts reflow into fewer columns, and wide data tables scroll horizontally rather than compressing columns until values become unreadable. Dashboard, list, and lineage API failures display an error with a retry action; empty results are shown only after a successful load.
 
@@ -101,7 +101,7 @@ Use fictional donor/sample data and test accounts only:
 7. Create a sequencing result metadata record and edit its supported metadata fields.
 8. Open the lineage graph and inspect MongoDB event history where events exist.
 9. Test sign-out, then sign in with Researcher/Lab Technician accounts as available; confirm restricted actions are rejected by the backend.
-10. Capture the audit-log unavailable state rather than representing synthetic activity as an audit trail.
+10. As an Admin, inspect the PostgreSQL audit log and verify that non-Admin users do not see its navigation entry and are rejected by the backend.
 
 Suggested screenshots:
 

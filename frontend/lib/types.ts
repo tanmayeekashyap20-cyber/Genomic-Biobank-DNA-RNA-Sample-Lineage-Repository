@@ -119,48 +119,48 @@ export interface DatabaseDonor {
 }
 
 export interface DatabaseProcess {
-  process_id: number;
+  process_id: string;
   process_type: string;
   process_date: string;
-  performed_by: number;
+  performed_by: string;
   researcher_name: string;
   description: string | null;
 }
 
 export interface DatabaseSampleProcess {
-  sample_process_id: number;
-  process_id: number;
+  sample_process_id: string;
+  process_id: string;
   process_type: string;
-  input_sample_id: number;
-  output_sample_id: number;
+  input_sample_id: string;
+  output_sample_id: string;
   quantity: number | null;
   unit: string | null;
 }
 
 export interface DatabaseExperiment {
-  experiment_id: number;
+  experiment_id: string;
   experiment_name: string;
   experiment_type: string | null;
   start_date: string | null;
   end_date: string | null;
-  researcher_id: number;
+  researcher_id: string;
   researcher_name: string;
   status: string;
   description: string | null;
 }
 
 export interface DatabaseExperimentSample {
-  experiment_sample_id: number;
-  experiment_id: number;
+  experiment_sample_id: string;
+  experiment_id: string;
   experiment_name: string;
-  sample_id: number;
+  sample_id: string;
   sample_status: string;
   date_added: string;
   notes: string | null;
 }
 
 export interface DatabaseStorageUnit {
-  storage_id: number;
+  storage_id: string;
   freezer_id: string | null;
   rack_no: string | null;
   box_no: string | null;
@@ -170,9 +170,9 @@ export interface DatabaseStorageUnit {
 }
 
 export interface DatabaseSampleStorage {
-  sample_storage_id: number;
-  sample_id: number;
-  storage_id: number;
+  sample_storage_id: string;
+  sample_id: string;
+  storage_id: string;
   stored_date: string;
   removed_date: string | null;
   freezer_id: string | null;
@@ -184,9 +184,9 @@ export interface DatabaseSampleStorage {
 }
 
 export interface DatabaseSequencingResult {
-  sequencing_result_id: number;
-  sample_id: number;
-  experiment_id: number | null;
+  sequencing_result_id: string;
+  sample_id: string;
+  experiment_id: string | null;
   sequencing_platform: string | null;
   run_date: string | null;
   file_path: string | null;
@@ -194,4 +194,14 @@ export interface DatabaseSequencingResult {
   notes: string | null;
   experiment_name: string | null;
   sample_status: string;
+}
+
+export interface DatabaseAuditLog {
+  audit_id: string;
+  user_id: string | null;
+  action: string;
+  table_name: string | null;
+  record_id: string | null;
+  action_timestamp: string;
+  details: string | null;
 }

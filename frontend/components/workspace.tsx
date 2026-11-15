@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Activity, Boxes, ClipboardList, Dna, FlaskConical, GitBranch, LayoutDashboard, Menu, Microscope, ShieldCheck, Users, X } from "lucide-react";
-import { useDemoData } from "@/components/demo-data-provider";
 import { Badge, Notice, PageHeading, Panel, useToast } from "@/components/ui";
 import { Dashboard } from "@/components/workspace-dashboard";
 import {
@@ -39,7 +38,7 @@ const navItems = [
   { href: "/experiments", label: "Experiments", icon: Microscope, group: "Research" },
   { href: "/sequencing", label: "Sequencing results", icon: Activity, group: "Research" },
   { href: "/storage", label: "Storage", icon: Boxes, group: "Operations" },
-  { href: "/audit", label: "Activity log", icon: ClipboardList, group: "Operations" },
+  { href: "/audit", label: "Activity log", icon: ClipboardList, group: "Operations", admin: true },
   { href: "/management", label: "Role permissions", icon: ShieldCheck, group: "Administration", admin: true },
 ];
 
@@ -60,7 +59,7 @@ export function Workspace() {
   const pathname = usePathname();
   const router = useRouter();
   const section = pathname.split("/")[1] || "dashboard";
-  const { role, setRole } = useDemoData();
+  const [role, setRole] = useState<UserRole | null>(null);
   const [modal, setModal] = useState("");
   const [editingDonor, setEditingDonor] = useState<DatabaseDonor>();
   const [editingSample, setEditingSample] = useState<DatabaseSample>();

@@ -376,7 +376,7 @@ export function LineageExplorer() {
     return () => {
       active = false;
     };
-  }, [eventsRetryKey]);
+  }, [selected, eventsRetryKey]);
 
   // Apply graph filters.
   useEffect(() => {

@@ -13,6 +13,7 @@ import type {
   DatabaseSampleStorage,
   DatabaseSequencingResult,
   DatabaseStorageUnit,
+  DatabaseAuditLog,
 } from "@/lib/types";
 
 type Section = "donors" | "samples" | "processing" | "experiments" | "sequencing" | "storage" | "audit";
@@ -60,7 +61,7 @@ export function RecordsPage({ section, onAdd, onAssignStorage, onEditDonor, onEd
   const [confirmStorageDelete, setConfirmStorageDelete] = useState(false);
   const [storageDeleteError, setStorageDeleteError] = useState("");
   const [deletingStorageUnit, setDeletingStorageUnit] = useState(false);
-  const [removingAssignmentId, setRemovingAssignmentId] = useState<number | null>(null);
+  const [removingAssignmentId, setRemovingAssignmentId] = useState<string | null>(null);
   const [assignmentActionError, setAssignmentActionError] = useState("");
   const [confirmSequencingDelete, setConfirmSequencingDelete] = useState(false);
   const [sequencingDeleteError, setSequencingDeleteError] = useState("");
@@ -362,7 +363,7 @@ useEffect(() => {
     try {
       if (safeSection === "processing" && selected && "process_type" in selected) {
         target = "process";
-        if (!Number.isSafeInteger(selected.process_id) || selected.process_id <= 0) {
+        if (!isDatabaseId(selected.process_id)) {
           throw new Error("Cannot delete a process without a valid PostgreSQL ID.");
         }
         const links = databaseSampleProcesses.filter(
@@ -374,7 +375,7 @@ useEffect(() => {
           );
         }
         for (const link of links) {
-          if (!Number.isSafeInteger(link.sample_process_id) || link.sample_process_id <= 0) {
+          if (!isDatabaseId(link.sample_process_id)) {
             throw new Error("A sample relationship has an invalid PostgreSQL ID.");
           }
           await deleteApiRecord(
@@ -387,7 +388,7 @@ useEffect(() => {
         );
       } else if (safeSection === "experiments" && selected && "experiment_type" in selected) {
         target = "experiment";
-        if (!Number.isSafeInteger(selected.experiment_id) || selected.experiment_id <= 0) {
+        if (!isDatabaseId(selected.experiment_id)) {
           throw new Error("Cannot delete an experiment without a valid PostgreSQL ID.");
         }
         const links = databaseExperimentSamples.filter(
@@ -399,7 +400,7 @@ useEffect(() => {
           );
         }
         for (const link of links) {
-          if (!Number.isSafeInteger(link.experiment_sample_id) || link.experiment_sample_id <= 0) {
+          if (!isDatabaseId(link.experiment_sample_id)) {
             throw new Error("A sample association has an invalid PostgreSQL ID.");
           }
           await deleteApiRecord(
@@ -452,7 +453,7 @@ useEffect(() => {
   };
 
   const removeStorageAssignment = async (assignment: DatabaseSampleStorage) => {
-    if (!Number.isSafeInteger(assignment.sample_storage_id) || assignment.sample_storage_id <= 0) {
+    if (!isDatabaseId(assignment.sample_storage_id)) {
       setAssignmentActionError("Cannot remove an assignment without a valid PostgreSQL ID.");
       return;
     }
@@ -484,7 +485,7 @@ useEffect(() => {
 
   const deleteSelectedSequencingResult = async () => {
     if (!selected || !("sequencing_result_id" in selected)) return;
-    if (!Number.isSafeInteger(selected.sequencing_result_id) || selected.sequencing_result_id <= 0) {
+    if (!isDatabaseId(selected.sequencing_result_id)) {
       setSequencingDeleteError("Cannot delete a sequencing result without a valid PostgreSQL ID.");
       return;
     }
@@ -504,6 +505,10 @@ useEffect(() => {
     }
   };
 
+  if (safeSection === "audit") {
+    return <AuditLogPanel />;
+  }
+
   return <>
     <PageHeading eyebrow={heading.eyebrow} title={heading.title} subtitle={heading.subtitle}>
       {heading.add && canWriteRecords && (
@@ -512,15 +517,12 @@ useEffect(() => {
           : <button className="button button-primary" onClick={onAdd}><Plus size={14} />{heading.add}</button>
       )}
     </PageHeading>
-    {safeSection === "audit" && <div style={{ marginBottom: 15 }}><Notice warning>No audit-log API route is currently available. Synthetic browser activity is not displayed as an audit trail.</Notice></div>}
     <div className="split-layout"><Panel title={heading.panelTitle} caption={
   safeSection === "samples"
     ? `${filtered.length} database ${filtered.length === 1 ? "sample" : "samples"} from PostgreSQL`
     : safeSection === "donors"
       ? `${filtered.length} database ${filtered.length === 1 ? "donor" : "donors"} from PostgreSQL`
-      : safeSection === "audit"
-        ? "No audit data available from the current API"
-        : `${filtered.length} database ${filtered.length === 1 ? "record" : "records"} from PostgreSQL`
+      : `${filtered.length} database ${filtered.length === 1 ? "record" : "records"} from PostgreSQL`
 } className="table-panel">
       <div className="table-toolbar"><div className="search-box"><Search size={14} /><input aria-label={`Search ${heading.title}`} placeholder={`Search ${heading.title.toLowerCase()}...`} value={query} onChange={(event) => setQuery(event.target.value)} /></div><div style={{ display: "flex", gap: 8 }}>{heading.filters && <select className="filter-select" aria-label="Filter records" value={filter} onChange={(event) => setFilter(event.target.value)}>{(safeSection === "sequencing" ? ["All", ...new Set(databaseSequencingResults.map((item) => item.result_status))] : heading.filters).map((option) => <option key={option}>{option}</option>)}</select>}{heading.sortKeys && <select className="filter-select" aria-label="Sort records" value={sortKey} onChange={(event) => setSortKey(event.target.value)}>{heading.sortKeys.map(([key, label]) => <option key={key} value={key}>Sort: {label}</option>)}</select>}</div></div>
       {safeSection === "samples" && samplesLoading && (
@@ -555,9 +557,7 @@ useEffect(() => {
               ? null
               : ["processing", "experiments", "sequencing", "storage"].includes(safeSection) && (recordsLoading || recordsError)
                 ? null
-                : safeSection === "audit"
-                  ? <EmptyState title="Audit log unavailable" detail="The backend does not currently expose an audit-log API." />
-                  : sorted.length === 0
+                : sorted.length === 0
                     ? <EmptyState title={query ? "No matching records" : `No ${heading.title.toLowerCase()} records`} detail={query ? "Try a different search or filter." : `Create a ${heading.title.toLowerCase()} record to get started.`} />
             : <RecordTable
                 section={safeSection}
@@ -709,13 +709,120 @@ const headings: Record<Section, { eyebrow: string; title: string; subtitle: stri
   experiments: { eyebrow: "Research activity", title: "Experiments", subtitle: "PostgreSQL experiments and their sample associations.", panelTitle: "Experiment register", add: "Create experiment", filters: ["All", "planned", "in_progress", "completed", "on_hold"], sortKeys: [["experiment_id", "experiment ID"], ["start_date", "start date"], ["status", "status"], ["experiment_type", "type"]] },
   sequencing: { eyebrow: "Research outputs", title: "Sequencing results", subtitle: "PostgreSQL sequencing result metadata; no synthetic read-count or quality metrics.", panelTitle: "Result register", add: "Record result", filters: ["All"], sortKeys: [["sequencing_result_id", "result ID"], ["run_date", "run date"], ["result_status", "status"]] },
   storage: { eyebrow: "Inventory operations", title: "Storage", subtitle: "PostgreSQL storage units, availability, and sample assignments.", panelTitle: "Storage units", add: "Create storage unit", filters: ["All", "available", "occupied"], sortKeys: [["storage_id", "location ID"], ["freezer_id", "freezer"], ["status", "status"]] },
-  audit: { eyebrow: "Activity history", title: "Activity log", subtitle: "Audit records are not available through the current backend API.", panelTitle: "Audit log" },
+  audit: { eyebrow: "Activity history", title: "Activity log", subtitle: "Recorded database actions from the PostgreSQL audit log.", panelTitle: "Audit log" },
 };
+
+function AuditLogPanel() {
+  const [entries, setEntries] = useState<DatabaseAuditLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [retryKey, setRetryKey] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadAuditLogs() {
+      try {
+        setLoading(true);
+        setError("");
+        const response = await fetch("/api/audit-logs?limit=100", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success || !Array.isArray(result.audit_logs)) {
+          throw new Error(result.message || "Could not load audit records.");
+        }
+        if (active) setEntries(result.audit_logs as DatabaseAuditLog[]);
+      } catch (loadError) {
+        if (active) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : "Could not load audit records."
+          );
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    void loadAuditLogs();
+    return () => {
+      active = false;
+    };
+  }, [retryKey]);
+
+  return (
+    <>
+      <PageHeading
+        eyebrow="Activity history"
+        title="Audit log"
+        subtitle="Review PostgreSQL database actions. Access is restricted by the backend to administrators."
+      />
+      <Panel title="Audit records" caption="Most recent records (maximum 100)">
+        {loading && <Notice>Loading audit records...</Notice>}
+        {error && (
+          <Notice warning>
+            {error}{" "}
+            <button
+              type="button"
+              className="button"
+              onClick={() => setRetryKey((current) => current + 1)}
+            >
+              Retry
+            </button>
+          </Notice>
+        )}
+        {!loading && !error && entries.length === 0 && (
+          <EmptyState
+            title="No audit records"
+            detail="No audit activity has been recorded yet."
+          />
+        )}
+        {!loading && !error && entries.length > 0 && (
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Audit ID</th>
+                  <th>Action</th>
+                  <th>Table</th>
+                  <th>Record ID</th>
+                  <th>User ID</th>
+                  <th>Timestamp</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((entry) => (
+                  <tr key={entry.audit_id}>
+                    <td>{entry.audit_id}</td>
+                    <td>{entry.action}</td>
+                    <td>{entry.table_name ?? "—"}</td>
+                    <td>{entry.record_id ?? "—"}</td>
+                    <td>{entry.user_id ?? "System / unknown"}</td>
+                    <td>{new Date(entry.action_timestamp).toLocaleString()}</td>
+                    <td>{entry.details ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+    </>
+  );
+}
 
 function sortValue(item: unknown, key: string): string | number {
   if (typeof item !== "object" || item === null) return "";
   const value = (item as Record<string, unknown>)[key];
   return typeof value === "number" ? value : String(value ?? "");
+}
+
+function isDatabaseId(value: string): boolean {
+  return /^[1-9]\d*$/.test(value);
 }
 
 type RecordItem = DatabaseDonor | DatabaseSample | DatabaseProcess | DatabaseExperiment | DatabaseSequencingResult | DatabaseStorageUnit;

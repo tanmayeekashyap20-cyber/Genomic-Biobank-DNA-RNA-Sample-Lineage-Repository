@@ -787,12 +787,12 @@ export function ProcessingForm({
       return;
     }
 
-    if (initialProcess && !Number.isSafeInteger(initialProcess.process_id)) {
+    if (initialProcess && !/^[1-9]\d*$/.test(initialProcess.process_id)) {
       setSubmitError("Cannot update a process without a valid PostgreSQL ID.");
       return;
     }
 
-    let processId: number | undefined;
+    let processId: string | undefined;
     try {
       const payload = {
         process_type: values.processType,
@@ -800,32 +800,21 @@ export function ProcessingForm({
         performed_by: Number(values.researcherId),
         description: values.description.trim() || null,
       };
-      const created = await requestJson(
-        initialProcess
-          ? `/api/processes?id=${encodeURIComponent(String(initialProcess.process_id))}`
-          : "/api/processes",
-        initialProcess ? "PATCH" : "POST",
-        payload
-      );
       if (initialProcess) {
+        await requestJson(
+          `/api/processes?id=${encodeURIComponent(initialProcess.process_id)}`,
+          "PATCH",
+          payload
+        );
         done(`Process ${initialProcess.process_id} was updated. Existing sample relationships were preserved.`);
         return;
       }
-      processId = Number(created.process.process_id);
-      try {
-        await requestJson("/api/sample-processes", "POST", {
-          process_id: processId,
-          input_sample_id: Number(values.inputSampleId),
-          output_sample_id: Number(values.outputSampleId),
-        });
-      } catch (error) {
-        done(
-          `Process ${processId} was saved, but its sample relationship failed: ${
-            error instanceof Error ? error.message : "unknown API error"
-          }`
-        );
-        return;
-      }
+      const created = await requestJson("/api/processing-events", "POST", {
+        ...payload,
+        input_sample_id: Number(values.inputSampleId),
+        output_sample_id: Number(values.outputSampleId),
+      });
+      processId = String(created.process.process_id);
       done(`Processing record ${processId} was saved to PostgreSQL.`);
     } catch (error) {
       setSubmitError(
@@ -897,7 +886,7 @@ export function ExperimentForm({
       form.setError("sampleId", { message: "Select a sample." });
       return;
     }
-    if (initialExperiment && !Number.isSafeInteger(initialExperiment.experiment_id)) {
+    if (initialExperiment && !/^[1-9]\d*$/.test(initialExperiment.experiment_id)) {
       setSubmitError("Cannot update an experiment without a valid PostgreSQL ID.");
       return;
     }
@@ -911,32 +900,42 @@ export function ExperimentForm({
         status: values.status,
         description: values.description.trim() || null,
       };
-      const created = await requestJson(
-        initialExperiment
-          ? `/api/experiments?id=${encodeURIComponent(String(initialExperiment.experiment_id))}`
-          : "/api/experiments",
-        initialExperiment ? "PATCH" : "POST",
-        payload
-      );
       if (initialExperiment) {
+        await requestJson(
+          `/api/experiments?id=${encodeURIComponent(initialExperiment.experiment_id)}`,
+          "PATCH",
+          payload
+        );
         done(`Experiment ${initialExperiment.experiment_id} was updated. Existing sample associations were preserved.`);
         return;
       }
-      const experimentId = Number(created.experiment.experiment_id);
-      try {
-        await requestJson("/api/experiment-samples", "POST", {
-          experiment_id: experimentId,
+      if (values.type && values.startDate) {
+        const created = await requestJson("/api/experiment-records", "POST", {
+          ...payload,
+          experiment_type: values.type,
+          start_date: values.startDate,
           sample_id: Number(values.sampleId),
+          date_added: new Date().toISOString().slice(0, 10),
         });
-      } catch (error) {
-        done(
-          `Experiment ${experimentId} was saved, but its sample association failed: ${
-            error instanceof Error ? error.message : "unknown API error"
-          }`
-        );
-        return;
+        done(`Experiment ${created.experiment.experiment_id} was saved to PostgreSQL.`);
+      } else {
+        const created = await requestJson("/api/experiments", "POST", payload);
+        const experimentId = String(created.experiment.experiment_id);
+        try {
+          await requestJson("/api/experiment-samples", "POST", {
+            experiment_id: Number(experimentId),
+            sample_id: Number(values.sampleId),
+          });
+        } catch (error) {
+          done(
+            `Experiment ${experimentId} was saved, but its sample association failed: ${
+              error instanceof Error ? error.message : "unknown API error"
+            }`
+          );
+          return;
+        }
+        done(`Experiment ${experimentId} was saved to PostgreSQL.`);
       }
-      done(`Experiment ${experimentId} was saved to PostgreSQL.`);
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "Could not save experiment.");
     }

@@ -1,4 +1,4 @@
-
+﻿
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { pool } from "@/lib/db";
@@ -80,7 +80,7 @@ const createExperimentSchema = z.object({
   start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   researcher_id: z.number().int().positive(),
-  status: z.string().trim().min(1).max(30).optional(),
+  status: z.enum(["planned", "in_progress", "completed", "on_hold"]).optional(),
   description: z.string().nullable().optional(),
 }).refine(
   (data) =>
@@ -180,7 +180,7 @@ const updateExperimentSchema = z.object({
   start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   researcher_id: z.number().int().positive().optional(),
-  status: z.string().trim().min(1).max(30).optional(),
+  status: z.enum(["planned", "in_progress", "completed", "on_hold"]).optional(),
   description: z.string().nullable().optional(),
 }).refine(
   (data) => Object.keys(data).length > 0,
@@ -351,3 +351,4 @@ export async function DELETE(request: NextRequest) {
     );
   }
 }
+

@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Only Admins and Researchers can access sample options
-  if (!hasRole(user, ["Admin", "Researcher"])) {
+  if (!hasRole(user, ["Admin", "Researcher", "Lab Technician"])) {
     return NextResponse.json(
       {
         success: false,

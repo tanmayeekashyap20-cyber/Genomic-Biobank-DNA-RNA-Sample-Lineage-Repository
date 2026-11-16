@@ -1,6 +1,7 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import {
+  experimentScope,
   getAuthenticatedUser,
   hasRole,
   type AllowedRole,
@@ -9,7 +10,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const READ_ROLES: AllowedRole[] = ["Admin", "Researcher"];
+const READ_ROLES: AllowedRole[] = ["Admin", "Researcher", "Lab Technician"];
 
 export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request);
@@ -29,6 +30,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // Researchers only see their own experiments ("My experiments").
+    const scope = experimentScope(user);
+
     const [
       donors,
       samples,
@@ -161,9 +165,10 @@ export async function GET(request: NextRequest) {
         FROM public.experiment e
         JOIN public.researcher r
           ON r.researcher_id = e.researcher_id
+        WHERE ($1::bigint IS NULL OR e.researcher_id = $1)
         ORDER BY e.experiment_id
         LIMIT 100
-      `),
+      `, [scope]),
 
       pool.query(`
         SELECT
@@ -179,9 +184,10 @@ export async function GET(request: NextRequest) {
           ON e.experiment_id = es.experiment_id
         JOIN public.sample s
           ON s.sample_id = es.sample_id
+        WHERE ($1::bigint IS NULL OR e.researcher_id = $1)
         ORDER BY es.experiment_sample_id
         LIMIT 100
-      `),
+      `, [scope]),
 
       pool.query(`
         SELECT

@@ -70,11 +70,12 @@ export async function POST(request: NextRequest) {
          u.email,
          u.password_hash,
          u.researcher_id,
+         u.is_active,
+         u.approval_status,
          r.role_name
        FROM public.app_user u
        JOIN public.role r ON r.role_id = u.role_id
        WHERE LOWER(u.email) = $1
-         AND u.is_active = TRUE
        LIMIT 1`,
       [email]
     );
@@ -113,6 +114,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Invalid email or password." },
         { status: 401 }
+      );
+    }
+
+    // Only reveal account status after the password has been verified,
+    // so the form cannot be used to probe which emails are registered.
+    if (account.approval_status === "pending") {
+      return NextResponse.json(
+        {
+          error:
+            "Your registration is awaiting administrator approval. You can sign in once it has been approved.",
+        },
+        { status: 403 }
+      );
+    }
+
+    if (account.approval_status === "rejected") {
+      return NextResponse.json(
+        { error: "Your registration was not approved. Contact an administrator." },
+        { status: 403 }
+      );
+    }
+
+    if (account.is_active !== true) {
+      return NextResponse.json(
+        { error: "This account has been deactivated. Contact an administrator." },
+        { status: 403 }
       );
     }
 

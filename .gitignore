@@ -15,3 +15,8 @@ build/
 
 # TypeScript generated cache
 frontend/tsconfig.tsbuildinfo
+*.zip
+/Genomic-Biobank-DNA-RNA-Sample-Lineage-Repository/
+README_backup.md
+sql/schema_original_backup.sql
+sql/schema_no_vector.sql

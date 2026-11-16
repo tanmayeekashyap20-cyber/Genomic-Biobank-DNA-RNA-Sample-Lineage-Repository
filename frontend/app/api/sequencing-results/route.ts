@@ -42,7 +42,7 @@ const dateSchema = z.string().regex(
 
 // GET: Fetch sequencing results
 export async function GET(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
+  const denied = await authorize(request, ["Admin", "Researcher", "Lab Technician"]);
   if (denied) return denied;
 
   try {
@@ -98,7 +98,7 @@ const createSequencingResultSchema = z.object({
 
 // POST: Create a sequencing result
 export async function POST(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
+  const denied = await authorize(request, ["Admin", "Researcher", "Lab Technician"]);
   if (denied) return denied;
 
   try {
@@ -208,7 +208,7 @@ const updateSequencingResultSchema = z.object({
 
 // PATCH: Update a sequencing result using ?id=1
 export async function PATCH(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
+  const denied = await authorize(request, ["Admin", "Researcher", "Lab Technician"]);
   if (denied) return denied;
 
   try {

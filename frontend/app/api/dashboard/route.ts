@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import {
   getAuthenticatedUser,
@@ -9,7 +9,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const READ_ROLES: AllowedRole[] = ["Admin", "Researcher"];
+const READ_ROLES: AllowedRole[] = ["Admin", "Researcher", "Lab Technician"];
 
 export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser(request);

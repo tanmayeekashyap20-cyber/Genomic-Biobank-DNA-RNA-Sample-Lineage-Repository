@@ -33,7 +33,7 @@ async function authorize(
 
 // Fetch processes with researcher details
 export async function GET(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
+  const denied = await authorize(request, ["Admin", "Researcher", "Lab Technician"]);
   if (denied) return denied;
 
   try {
@@ -77,7 +77,7 @@ const createProcessSchema = z.object({
 
 // Create a process
 export async function POST(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
+  const denied = await authorize(request, ["Admin", "Researcher", "Lab Technician"]);
   if (denied) return denied;
 
   try {
@@ -154,7 +154,7 @@ const updateProcessSchema = z.object({
 
 // Update process using /api/processes?id=1
 export async function PATCH(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
+  const denied = await authorize(request, ["Admin", "Researcher", "Lab Technician"]);
   if (denied) return denied;
 
   try {

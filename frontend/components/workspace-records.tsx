@@ -9,8 +9,7 @@ import {
   Notice,
   PageHeading,
   Panel,
-} from "@/components/ui";
-
+} from "./ui";
 import type {
   DatabaseDonor,
   DatabaseSample,
@@ -21,7 +20,7 @@ import type {
   DatabaseSequencingResult,
   DatabaseStorageUnit,
   DatabaseSampleStorage,
-} from "@/lib/types";
+} from "../lib/types";
 
 type Section =
   | "donors"
@@ -32,7 +31,7 @@ type Section =
   | "storage"
   | "audit";
 
-type RecordsData = {
+type RecordsPayload = {
   donors: DatabaseDonor[];
   samples: DatabaseSample[];
   processes: DatabaseProcess[];
@@ -44,18 +43,9 @@ type RecordsData = {
   sample_storage: DatabaseSampleStorage[];
 };
 
-type RecordItem =
-  | DatabaseDonor
-  | DatabaseSample
-  | DatabaseProcess
-  | DatabaseSampleProcess
-  | DatabaseExperiment
-  | DatabaseExperimentSample
-  | DatabaseSequencingResult
-  | DatabaseStorageUnit
-  | DatabaseSampleStorage;
+type RecordRow = Record<string, unknown>;
 
-const emptyRecords: RecordsData = {
+const emptyRecords: RecordsPayload = {
   donors: [],
   samples: [],
   processes: [],
@@ -67,190 +57,278 @@ const emptyRecords: RecordsData = {
   sample_storage: [],
 };
 
-const headings: Record<
-  Section,
-  {
-    eyebrow: string;
-    title: string;
-    subtitle: string;
-    panelTitle: string;
-    add?: string;
-  }
-> = {
+const headings: Record<Section, { title: string; description: string }> = {
   donors: {
-    eyebrow: "Database records",
-    title: "Donors",
-    subtitle: "Donor registration records stored in PostgreSQL.",
-    panelTitle: "Donor register",
-    add: "Register donor",
+    title: "Donor records",
+    description: "Donor registration and consent information from PostgreSQL.",
   },
   samples: {
-    eyebrow: "Specimen inventory",
-    title: "Samples",
-    subtitle:
-      "Track sample collection, status, storage and recorded lineage.",
-    panelTitle: "Sample register",
-    add: "Register sample",
+    title: "Sample records",
+    description: "Registered biological samples and their lineage and storage details.",
   },
   processing: {
-    eyebrow: "Sample operations",
-    title: "Processing",
-    subtitle:
-      "View processing operations and their input and output sample associations.",
-    panelTitle: "Processing events",
-    add: "Record event",
+    title: "Processing records",
+    description: "Recorded laboratory processes and their input and output samples.",
   },
   experiments: {
-    eyebrow: "Research activity",
     title: "Experiments",
-    subtitle:
-      "View experiments and their associated samples.",
-    panelTitle: "Experiment register",
-    add: "Create experiment",
+    description: "Research experiments and their linked samples.",
   },
   sequencing: {
-    eyebrow: "Research outputs",
     title: "Sequencing results",
-    subtitle:
-      "Sequencing result records retrieved from PostgreSQL.",
-    panelTitle: "Sequencing result register",
+    description: "Sequencing runs and their recorded result details.",
   },
   storage: {
-    eyebrow: "Inventory operations",
-    title: "Storage",
-    subtitle:
-      "View storage units and their sample assignments.",
-    panelTitle: "Storage units",
+    title: "Storage records",
+    description: "Storage units and current sample assignments.",
   },
   audit: {
-    eyebrow: "Activity history",
-    title: "Activity log",
-    subtitle:
-      "Audit records are not yet exposed through this records endpoint.",
-    panelTitle: "Audit records",
+    title: "Audit log",
+    description: "Database audit information.",
   },
 };
 
-function getRecordId(record: RecordItem): string {
-  if ("donor_id" in record) return String(record.donor_id);
-  if ("sample_id" in record && "collection_date" in record) {
-    return String(record.sample_id);
+function display(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "string" && value.includes("T")) {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) return date.toLocaleString();
   }
-  if ("process_id" in record && "process_type" in record) {
-    return String(record.process_id);
-  }
-  if ("sample_process_id" in record) {
-    return String(record.sample_process_id);
-  }
-  if ("experiment_id" in record && "experiment_name" in record) {
-    return String(record.experiment_id);
-  }
-  if ("experiment_sample_id" in record) {
-    return String(record.experiment_sample_id);
-  }
-  if ("sequencing_result_id" in record) {
-    return String(record.sequencing_result_id);
-  }
-  if ("storage_id" in record) return String(record.storage_id);
-  if ("sample_storage_id" in record) {
-    return String((record as DatabaseSampleStorage).sample_storage_id);
-  }
-  return "â€”";
-}
-
-function getStatus(record: RecordItem): string {
-  if ("status" in record) return String(record.status);
-  if ("result_status" in record) return String(record.result_status);
-  if ("storage_status" in record) return String(record.storage_status);
-  return "";
-}
-
-function getStatusTone(
-  status: string
-): "success" | "warning" | "danger" | "info" | "" {
-  const value = status.toLowerCase();
-
-  if (
-    value.includes("active") ||
-    value.includes("complete") ||
-    value.includes("available") ||
-    value.includes("operational")
-  ) {
-    return "success";
-  }
-
-  if (
-    value.includes("pending") ||
-    value.includes("planned") ||
-    value.includes("processing")
-  ) {
-    return "warning";
-  }
-
-  if (
-    value.includes("withdrawn") ||
-    value.includes("depleted") ||
-    value.includes("failed")
-  ) {
-    return "danger";
-  }
-
-  if (value.includes("progress")) return "info";
-
-  return "";
+  return String(value);
 }
 
 function formatDate(value: string | null | undefined): string {
-  if (!value) return "â€”";
-
+  if (!value) return "—";
   const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) return value;
-
-  return date.toLocaleDateString();
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
 }
 
-function formatValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") {
-    return "â€”";
+function StatusBadge({ value }: { value: string | null | undefined }) {
+  if (!value) return <span>—</span>;
+  return <Badge>{value.replaceAll("_", " ")}</Badge>;
+}
+
+function Table({
+  columns,
+  rows,
+  onSelect,
+}: {
+  columns: { key: string; label: string }[];
+  rows: RecordRow[];
+  onSelect?: (row: RecordRow) => void;
+}) {
+  if (rows.length === 0) {
+   return <EmptyState title="No records found" detail="There are no matching PostgreSQL records in this section." />;
   }
 
-  if (Array.isArray(value)) {
-    if (value.length === 0) return "None";
-    return value.map((item) => formatValue(item)).join(", ");
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b text-left">
+            {columns.map((column) => (
+              <th key={column.key} className="px-3 py-3 font-medium">
+                {column.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr
+              key={String(row.id ?? row.sample_id ?? row.donor_id ?? row.process_id ?? row.experiment_id ?? row.sequencing_result_id ?? row.storage_id ?? index)}
+              className={`border-b last:border-0 ${onSelect ? "cursor-pointer hover:bg-muted/40" : ""}`}
+              onClick={() => onSelect?.(row)}
+            >
+              {columns.map((column) => (
+                <td key={column.key} className="px-3 py-3 align-top">
+                  {column.key === "status" ||
+                  column.key === "consent_status" ||
+                  column.key === "result_status" ||
+                  column.key === "storage_status" ? (
+                    <StatusBadge value={row[column.key] as string | null} />
+                  ) : (
+                    display(row[column.key])
+                  )}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Detail({
+  section,
+  row,
+  records,
+}: {
+  section: Section;
+  row: RecordRow | null;
+  records: RecordsPayload;
+}) {
+  if (!row) {
+    return (
+      <EmptyState
+        title="Select a record"
+        detail="Choose a row to view its available database details."
+      />
+    );
   }
 
-  if (typeof value === "object") {
-    return Object.entries(value as Record<string, unknown>)
-      .map(([key, item]) => `${key}: ${formatValue(item)}`)
-      .join(" Â· ");
+  const sampleId = String(row.sample_id ?? "");
+  const processId = String(row.process_id ?? "");
+  const experimentId = String(row.experiment_id ?? "");
+  const storageId = String(row.storage_id ?? "");
+
+  let details: [string, unknown][] = Object.entries(row);
+
+  if (section === "samples") {
+    const sample = records.samples.find((item) => item.sample_id === sampleId);
+    details = [
+      ["Sample ID", sample?.sample_id],
+      ["Donor ID", sample?.donor_id],
+      ["Sample type", sample?.sample_type_name],
+      ["Collection date", formatDate(sample?.collection_date)],
+      ["Collection location", sample?.collection_location],
+      ["Status", sample?.status],
+      ["Description", sample?.description],
+      ["Parent samples", sample?.lineage_parents?.map((item) => item.related_sample_id).join(", ")],
+      ["Child samples", sample?.lineage_children?.map((item) => item.related_sample_id).join(", ")],
+      ["Storage locations", sample?.storage_locations?.map((item) => `${item.freezer_id} / ${item.rack_no} / ${item.box_no} / ${item.position}`).join("; ")],
+    ];
+  } else if (section === "donors") {
+    details = [
+      ["Donor ID", row.donor_id],
+      ["Registration date", formatDate(String(row.registration_date ?? ""))],
+      ["Consent status", row.consent_status],
+    ];
+  } else if (section === "processing") {
+    details = [
+      ["Process ID", row.process_id],
+      ["Process type", row.process_type],
+      ["Process date", formatDate(String(row.process_date ?? ""))],
+      ["Performed by", row.researcher_name],
+      ["Description", row.description],
+      ["Sample operations", records.sample_processes
+        .filter((item) => item.process_id === processId)
+        .map((item) => `${item.input_sample_id} → ${item.output_sample_id}`)
+        .join("; ")],
+    ];
+  } else if (section === "experiments") {
+    details = [
+      ["Experiment ID", row.experiment_id],
+      ["Name", row.experiment_name],
+      ["Type", row.experiment_type],
+      ["Researcher", row.researcher_name],
+      ["Start date", formatDate(String(row.start_date ?? ""))],
+      ["End date", formatDate(String(row.end_date ?? ""))],
+      ["Status", row.status],
+      ["Description", row.description],
+      ["Linked samples", records.experiment_samples
+        .filter((item) => item.experiment_id === experimentId)
+        .map((item) => item.sample_id)
+        .join(", ")],
+    ];
+  } else if (section === "sequencing") {
+    details = [
+      ["Sequencing result ID", row.sequencing_result_id],
+      ["Sample ID", row.sample_id],
+      ["Experiment", row.experiment_name ?? row.experiment_id],
+      ["Platform", row.sequencing_platform],
+      ["Run date", formatDate(String(row.run_date ?? ""))],
+      ["Result status", row.result_status],
+      ["File path", row.file_path],
+      ["Notes", row.notes],
+    ];
+  } else if (section === "storage") {
+    details = [
+      ["Storage ID", row.storage_id],
+      ["Freezer", row.freezer_id],
+      ["Rack", row.rack_no],
+      ["Box", row.box_no],
+      ["Position", row.position],
+      ["Temperature", row.temperature],
+      ["Status", row.status],
+      ["Currently assigned samples", records.sample_storage
+        .filter((item) => item.storage_id === storageId && !item.removed_date)
+        .map((item) => item.sample_id)
+        .join(", ")],
+    ];
   }
 
-  return String(value);
+  return (
+    <div className="space-y-3">
+      {details.map(([label, value]) => (
+        <div key={label} className="border-b pb-2 last:border-0">
+          <div className="text-xs text-muted-foreground">{label}</div>
+          <div className="mt-1 break-words text-sm">{display(value)}</div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function RecordsPage({
   section,
+  title: titleOverride,
+  canAdd = true,
   onAdd,
   onEditDonor,
 }: {
-  section: string;
+  section: Section;
+  // Role-specific page title (e.g. "My experiments"); empty = default.
+  title?: string;
+  // False for sections the current role may only view.
+  canAdd?: boolean;
   onAdd: () => void;
   onEditDonor: (id: string) => void;
 }) {
-  const safeSection = (
-    section in headings ? section : "samples"
-  ) as Section;
-
-  const heading = headings[safeSection];
-
-  const [records, setRecords] = useState<RecordsData>(emptyRecords);
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("All");
-  const [sortKey, setSortKey] = useState("id");
-  const [selected, setSelected] = useState<RecordItem | null>(null);
+  const [records, setRecords] = useState<RecordsPayload>(emptyRecords);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<RecordRow | null>(null);
+  const [auditRows, setAuditRows] = useState<RecordRow[]>([]);
+
+  // Audit history comes from its own endpoint (Admin / Lab Technician).
+  useEffect(() => {
+    if (section !== "audit") return;
+    let cancelled = false;
+
+    async function loadAudit() {
+      setLoading(true);
+      setError("");
+
+      try {
+        const response = await fetch("/api/audit-logs?limit=100", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+          throw new Error(result.message || "Unable to load audit history.");
+        }
+
+        if (!cancelled) setAuditRows(result.audit_logs as RecordRow[]);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Unable to load audit history.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void loadAudit();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [section]);
 
   useEffect(() => {
     let cancelled = false;
@@ -261,17 +339,13 @@ export function RecordsPage({
 
       try {
         const response = await fetch("/api/records", {
-          method: "GET",
           credentials: "include",
           cache: "no-store",
         });
-
         const result = await response.json();
 
         if (!response.ok || !result.success) {
-          throw new Error(
-            result.error || result.message || "Could not load records."
-          );
+          throw new Error(result.error || "Unable to load records.");
         }
 
         if (!cancelled) {
@@ -282,731 +356,203 @@ export function RecordsPage({
         }
       } catch (err) {
         if (!cancelled) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Could not load records from PostgreSQL."
-          );
+          setError(err instanceof Error ? err.message : "Unable to load records.");
         }
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     }
 
-    void loadRecords();
+    loadRecords();
 
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const currentRecords = useMemo<RecordItem[]>(() => {
-    switch (safeSection) {
+  useEffect(() => {
+    setSelected(null);
+    setQuery("");
+  }, [section]);
+
+  const rows = useMemo<RecordRow[]>(() => {
+    let result: RecordRow[] = [];
+
+    switch (section) {
       case "donors":
-        return records.donors;
+        result = records.donors as unknown as RecordRow[];
+        break;
       case "samples":
-        return records.samples;
+        result = records.samples as unknown as RecordRow[];
+        break;
+      case "processing":
+        result = records.processes as unknown as RecordRow[];
+        break;
+      case "experiments":
+        result = records.experiments as unknown as RecordRow[];
+        break;
+      case "sequencing":
+        result = records.sequencing_results as unknown as RecordRow[];
+        break;
+      case "storage":
+        result = records.storage_units as unknown as RecordRow[];
+        break;
+      case "audit":
+        result = auditRows;
+        break;
+    }
+
+    const search = query.trim().toLowerCase();
+    if (!search) return result;
+
+    return result.filter((row) =>
+      Object.values(row).some((value) =>
+        String(value ?? "").toLowerCase().includes(search),
+      ),
+    );
+  }, [records, auditRows, section, query]);
+
+  const columns = useMemo(() => {
+    switch (section) {
+      case "donors":
+        return [
+          { key: "donor_id", label: "Donor ID" },
+          { key: "registration_date", label: "Registration date" },
+          { key: "consent_status", label: "Consent status" },
+        ];
+      case "samples":
+        return [
+          { key: "sample_id", label: "Sample ID" },
+          { key: "donor_id", label: "Donor ID" },
+          { key: "sample_type_name", label: "Sample type" },
+          { key: "collection_date", label: "Collection date" },
+          { key: "status", label: "Status" },
+        ];
       case "processing":
         return [
-          ...records.processes,
-          ...records.sample_processes,
+          { key: "process_id", label: "Process ID" },
+          { key: "process_type", label: "Process type" },
+          { key: "process_date", label: "Process date" },
+          { key: "researcher_name", label: "Performed by" },
         ];
       case "experiments":
         return [
-          ...records.experiments,
-          ...records.experiment_samples,
+          { key: "experiment_id", label: "Experiment ID" },
+          { key: "experiment_name", label: "Experiment" },
+          { key: "experiment_type", label: "Type" },
+          { key: "researcher_name", label: "Researcher" },
+          { key: "status", label: "Status" },
         ];
       case "sequencing":
-        return records.sequencing_results;
+        return [
+          { key: "sequencing_result_id", label: "Result ID" },
+          { key: "sample_id", label: "Sample ID" },
+          { key: "experiment_name", label: "Experiment" },
+          { key: "sequencing_platform", label: "Platform" },
+          { key: "result_status", label: "Result status" },
+        ];
       case "storage":
         return [
-          ...records.storage_units,
-          ...records.sample_storage,
+          { key: "storage_id", label: "Storage ID" },
+          { key: "freezer_id", label: "Freezer" },
+          { key: "rack_no", label: "Rack" },
+          { key: "box_no", label: "Box" },
+          { key: "position", label: "Position" },
+          { key: "status", label: "Status" },
         ];
       case "audit":
-        return [];
-      default:
-        return [];
+        return [
+          { key: "audit_id", label: "Audit ID" },
+          { key: "action_timestamp", label: "When" },
+          { key: "action", label: "Action" },
+          { key: "table_name", label: "Table" },
+          { key: "record_id", label: "Record ID" },
+          { key: "user_id", label: "User ID" },
+          { key: "details", label: "Details" },
+        ];
     }
-  }, [records, safeSection]);
+  }, [section]);
 
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-
-    return currentRecords.filter((record) => {
-      const searchable = JSON.stringify(record).toLowerCase();
-
-      const matchesSearch = searchable.includes(needle);
-
-      const status = getStatus(record);
-      const matchesFilter =
-        filter === "All" ||
-        status.toLowerCase() === filter.toLowerCase();
-
-      return matchesSearch && matchesFilter;
-    });
-  }, [currentRecords, filter, query]);
-
-  const sorted = useMemo(() => {
-    return [...filtered].sort((left, right) => {
-      let leftValue: unknown = getRecordId(left);
-      let rightValue: unknown = getRecordId(right);
-
-      if (sortKey !== "id") {
-        leftValue = (left as unknown as Record<string, unknown>)[sortKey];
-        rightValue = (right as unknown as Record<string, unknown>)[sortKey];
-      }
-
-      return String(leftValue ?? "").localeCompare(
-        String(rightValue ?? ""),
-        undefined,
-        { numeric: true }
-      );
-    });
-  }, [filtered, sortKey]);
-
-  const filterOptions = useMemo(() => {
-    const statuses = currentRecords
-      .map((record) => getStatus(record))
-      .filter(Boolean);
-
-    return ["All", ...Array.from(new Set(statuses))];
-  }, [currentRecords]);
-
-  if (safeSection === "audit") {
-    return <AuditLogPanel />;
-  }
+  const title = {
+    ...headings[section],
+    title: titleOverride || headings[section].title,
+  };
 
   return (
-    <>
+    <div className="space-y-6">
       <PageHeading
-        eyebrow={heading.eyebrow}
-        title={heading.title}
-        subtitle={heading.subtitle}
-      >
-        {heading.add && (
-          <button
-            className="button button-primary"
-            onClick={onAdd}
-          >
-            <Plus size={14} />
-            {heading.add}
-          </button>
-        )}
-      </PageHeading>
+  eyebrow="PostgreSQL"
+  title={title.title}
+  subtitle={title.description}
+>
+  {section !== "audit" && canAdd ? (
+    <button
+      type="button"
+      onClick={onAdd}
+      className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+    >
+      <Plus className="h-4 w-4" />
+      Add record
+    </button>
+  ) : undefined}
+</PageHeading>
+      <Notice>
+        Records are loaded from PostgreSQL. The API currently returns up to 100
+        rows per record category; the displayed rows are not necessarily the
+        complete database totals.
+      </Notice>
 
-      {error && (
-        <div style={{ marginBottom: 15 }}>
-          <Notice warning>{error}</Notice>
-        </div>
-      )}
+      {error ? <Notice>{error}</Notice> : null}
 
-      <div className="split-layout">
-        <Panel
-          title={heading.panelTitle}
-          caption={`${filtered.length} ${
-            filtered.length === 1 ? "record" : "records"
-          } from the database`}
-          className="table-panel"
-        >
-          <div className="table-toolbar">
-            <div className="search-box">
-              <Search size={14} />
-              <input
-                aria-label={`Search ${heading.title}`}
-                placeholder={`Search ${heading.title.toLowerCase()}...`}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </div>
-
-            <div style={{ display: "flex", gap: 8 }}>
-              {filterOptions.length > 1 && (
-                <select
-                  className="filter-select"
-                  aria-label="Filter records"
-                  value={filter}
-                  onChange={(event) => setFilter(event.target.value)}
-                >
-                  {filterOptions.map((option) => (
-                    <option key={option}>{option}</option>
-                  ))}
-                </select>
-              )}
-
-              <select
-                className="filter-select"
-                aria-label="Sort records"
-                value={sortKey}
-                onChange={(event) => setSortKey(event.target.value)}
-              >
-                <option value="id">Sort: ID</option>
-                <option value="status">Sort: Status</option>
-              </select>
-            </div>
+      <Panel title="PostgreSQL records" caption="Search and browse database records">
+        <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative w-full sm:max-w-sm">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search records..."
+              className="w-full rounded-md border bg-background py-2 pl-9 pr-3 text-sm"
+            />
           </div>
+          <span className="text-sm text-muted-foreground">
+            {loading ? "Loading records..." : `${rows.length} records shown`}
+          </span>
+        </div>
 
-          {loading && (
-            <Notice>Loading records from PostgreSQL...</Notice>
-          )}
-
-          {!loading && !error && (
-            <div className="table-scroll">
-              <RecordTable
-                section={safeSection}
-                items={sorted}
-                onSelect={setSelected}
-              />
-            </div>
-          )}
-        </Panel>
-
-        <aside
-          className="grid"
-          style={{ alignContent: "start", gap: 12 }}
-        >
-          {selected && (
-            <Panel
-              title="Record details"
-              action={
-                <>
-                  {safeSection === "donors" &&
-                    "donor_id" in selected && (
-                      <button
-                        className="button button-quiet"
-                        onClick={() =>
-                          onEditDonor(String(selected.donor_id))
-                        }
-                      >
-                        Edit
-                      </button>
-                    )}
-
-                  <button
-                    className="button button-quiet"
-                    onClick={() => setSelected(null)}
-                    aria-label="Clear selection"
-                  >
-                    Clear
-                  </button>
-                </>
+        {loading ? (
+          <div className="p-6 text-sm text-muted-foreground">
+            Loading PostgreSQL records...
+          </div>
+        ) : section === "audit" ? (
+          <Table columns={columns} rows={rows} />
+        ) : (
+          <Table
+            columns={columns}
+            rows={rows}
+            onSelect={(row) => {
+              setSelected(row);
+              if (section === "donors" && row.donor_id !== undefined) {
+                onEditDonor(String(row.donor_id));
               }
-            >
-              <Detail record={selected} />
-            </Panel>
-          )}
+            }}
+          />
+        )}
+      </Panel>
 
-          {safeSection === "samples" && (
-            <Panel
-              title="Lineage data"
-              caption="Recorded sample relationships"
-            >
-              <div className="detail-value">
-                {records.sample_processes.length} sample processing
-                associations
-              </div>
-              <p className="panel-caption">
-                Relationships are displayed from recorded database
-                associations.
-              </p>
-            </Panel>
-          )}
-
-          {safeSection === "storage" && (
-            <Panel title="Storage overview">
-              <div className="detail-value">
-                {records.storage_units.length} storage units
-              </div>
-              <p className="panel-caption">
-                {records.sample_storage.length} sample storage
-                assignments recorded.
-              </p>
-            </Panel>
-          )}
-        </aside>
-      </div>
-    </>
-  );
-}
-
-function RecordTable({
-  section,
-  items,
-  onSelect,
-}: {
-  section: Section;
-  items: RecordItem[];
-  onSelect: (record: RecordItem) => void;
-}) {
-  if (!items.length) {
-    return (
-      <EmptyState
-        title="No matching records"
-        detail="Try a different search or filter. If the database contains no records, register one using the available action."
-      />
-    );
-  }
-
-  if (section === "donors") {
-    return (
-      <table>
-        <thead>
-          <tr>
-            <th>Donor ID</th>
-            <th>Registration date</th>
-            <th>Consent status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(items as DatabaseDonor[]).map((donor) => (
-            <tr
-              key={donor.donor_id}
-              onClick={() => onSelect(donor)}
-            >
-              <td>
-                <button className="table-link">
-                  {donor.donor_id}
-                </button>
-              </td>
-              <td>{formatDate(donor.registration_date)}</td>
-              <td>
-                <Badge tone={getStatusTone(donor.consent_status ?? "")}>
-                  {donor.consent_status ?? "Unknown"}
-                </Badge>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    );
-  }
-
-  if (section === "samples") {
-    return (
-      <table>
-        <thead>
-          <tr>
-            <th>Sample ID</th>
-            <th>Donor ID</th>
-            <th>Type</th>
-            <th>Collection date</th>
-            <th>Status</th>
-            <th>Storage</th>
-            <th>Lineage</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(items as DatabaseSample[]).map((sample) => (
-            <tr
-              key={sample.sample_id}
-              onClick={() => onSelect(sample)}
-            >
-              <td>
-                <button className="table-link">
-                  {sample.sample_id}
-                </button>
-              </td>
-              <td>{sample.donor_id}</td>
-              <td>{sample.sample_type_name}</td>
-              <td>{formatDate(sample.collection_date)}</td>
-              <td>
-                <Badge tone={getStatusTone(sample.status)}>
-                  {sample.status}
-                </Badge>
-              </td>
-              <td>
-                {sample.storage_locations?.length
-                  ? sample.storage_locations
-                      .map(
-                        (location) =>
-                          `${location.freezer_id ?? "â€”"} / ${
-                            location.position ?? "â€”"
-                          }`
-                      )
-                      .join(", ")
-                  : "Not stored"}
-              </td>
-              <td>
-                {sample.lineage_children?.length ||
-                sample.lineage_parents?.length ? (
-                  <Badge tone="info">Recorded</Badge>
-                ) : (
-                  "None"
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    );
-  }
-
-  if (section === "processing") {
-    return (
-      <table>
-        <thead>
-          <tr>
-            <th>Record ID</th>
-            <th>Process</th>
-            <th>Date</th>
-            <th>Researcher</th>
-            <th>Input sample</th>
-            <th>Output sample</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((record) => {
-            if ("sample_process_id" in record) {
-              return (
-                <tr
-                  key={record.sample_process_id}
-                  onClick={() => onSelect(record)}
-                >
-                  <td>{record.sample_process_id}</td>
-                  <td>{record.process_type}</td>
-                  <td>â€”</td>
-                  <td>â€”</td>
-                  <td>{record.input_sample_id}</td>
-                  <td>{record.output_sample_id}</td>
-                </tr>
-              );
-            }
-
-            const process = record as DatabaseProcess;
-
-            return (
-              <tr
-                key={process.process_id}
-                onClick={() => onSelect(process)}
-              >
-                <td>{process.process_id}</td>
-                <td>{process.process_type}</td>
-                <td>{formatDate(process.process_date)}</td>
-                <td>{process.researcher_name}</td>
-                <td>See sample associations</td>
-                <td>See sample associations</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    );
-  }
-
-  if (section === "experiments") {
-    return (
-      <table>
-        <thead>
-          <tr>
-            <th>Record ID</th>
-            <th>Experiment</th>
-            <th>Type</th>
-            <th>Researcher</th>
-            <th>Date</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((record) => {
-            if ("experiment_sample_id" in record) {
-              return (
-                <tr
-                  key={record.experiment_sample_id}
-                  onClick={() => onSelect(record)}
-                >
-                  <td>{record.experiment_sample_id}</td>
-                  <td>{record.experiment_name}</td>
-                  <td>Sample association</td>
-                  <td>â€”</td>
-                  <td>{formatDate(record.date_added)}</td>
-                  <td>{record.sample_status}</td>
-                </tr>
-              );
-            }
-
-            const experiment = record as DatabaseExperiment;
-
-            return (
-              <tr
-                key={experiment.experiment_id}
-                onClick={() => onSelect(experiment)}
-              >
-                <td>{experiment.experiment_id}</td>
-                <td>{experiment.experiment_name}</td>
-                <td>{experiment.experiment_type ?? "â€”"}</td>
-                <td>{experiment.researcher_name}</td>
-                <td>{formatDate(experiment.start_date)}</td>
-                <td>
-                  <Badge tone={getStatusTone(experiment.status)}>
-                    {experiment.status}
-                  </Badge>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    );
-  }
-
-  if (section === "sequencing") {
-    return (
-      <table>
-        <thead>
-          <tr>
-            <th>Result ID</th>
-            <th>Sample</th>
-            <th>Experiment</th>
-            <th>Platform</th>
-            <th>Run date</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(items as DatabaseSequencingResult[]).map((result) => (
-            <tr
-              key={result.sequencing_result_id}
-              onClick={() => onSelect(result)}
-            >
-              <td>{result.sequencing_result_id}</td>
-              <td>{result.sample_id}</td>
-              <td>{result.experiment_name ?? result.experiment_id ?? "â€”"}</td>
-              <td>{result.sequencing_platform ?? "â€”"}</td>
-              <td>{formatDate(result.run_date)}</td>
-              <td>
-                <Badge tone={getStatusTone(result.result_status)}>
-                  {result.result_status}
-                </Badge>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    );
-  }
-
-  if (section === "storage") {
-    return (
-      <table>
-        <thead>
-          <tr>
-            <th>Record ID</th>
-            <th>Freezer</th>
-            <th>Rack</th>
-            <th>Box</th>
-            <th>Position</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((record) => {
-            if ("sample_storage_id" in record) {
-              return (
-                <tr
-                  key={record.sample_storage_id}
-                  onClick={() => onSelect(record)}
-                >
-                  <td>{record.sample_storage_id}</td>
-                  <td>{record.freezer_id ?? "â€”"}</td>
-                  <td>{record.rack_no ?? "â€”"}</td>
-                  <td>{record.box_no ?? "â€”"}</td>
-                  <td>{record.position ?? "â€”"}</td>
-                  <td>
-                    <Badge tone={getStatusTone(record.storage_status)}>
-                      {record.storage_status}
-                    </Badge>
-                  </td>
-                </tr>
-              );
-            }
-
-            const unit = record as DatabaseStorageUnit;
-
-            return (
-              <tr
-                key={unit.storage_id}
-                onClick={() => onSelect(unit)}
-              >
-                <td>{unit.storage_id}</td>
-                <td>{unit.freezer_id ?? "â€”"}</td>
-                <td>{unit.rack_no ?? "â€”"}</td>
-                <td>{unit.box_no ?? "â€”"}</td>
-                <td>{unit.position ?? "â€”"}</td>
-                <td>
-                  <Badge tone={getStatusTone(unit.status)}>
-                    {unit.status}
-                  </Badge>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    );
-  }
-
-  return (
-    <EmptyState
-      title="No audit records available"
-      detail="Audit records are not currently returned by the records API."
-    />
-  );
-}
-
-function Detail({ record }: { record: RecordItem }) {
-  const entries = Object.entries(
-    record as unknown as Record<string, unknown>
-  );
-
-  return (
-    <div>
-      {entries.map(([label, value]) => (
-        <div key={label} className="detail-block">
-          <div className="detail-label">
-            {label.replaceAll("_", " ")}
+      {section !== "audit" ? (
+        <Panel title="Record details" caption="Details available from the PostgreSQL records">
+          <div className="border-b p-4">
+            <h3 className="font-semibold">Record details</h3>
+            <p className="text-sm text-muted-foreground">
+              Details available from the PostgreSQL records.
+            </p>
           </div>
-          <div className="detail-value">
-            {formatValue(value)}
+          <div className="p-4">
+            <Detail section={section} row={selected} records={records} />
           </div>
-        </div>
-      ))}
+        </Panel>
+      ) : null}
     </div>
   );
 }
-
-
-type AuditLogEntry = {
-  audit_id: number;
-  user_id: number | null;
-  action: string;
-  table_name: string | null;
-  record_id: number | null;
-  action_timestamp: string;
-  details: string | null;
-};
-
-function AuditLogPanel() {
-  const [entries, setEntries] = useState<AuditLogEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadAuditLogs() {
-      setLoading(true);
-      setError("");
-
-      try {
-        const response = await fetch("/api/audit-logs?limit=100", {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-        });
-
-        const result = await response.json();
-
-        if (!response.ok || !result.success) {
-          throw new Error(
-            result.message || "Could not load audit history."
-          );
-        }
-
-        if (!cancelled) {
-          setEntries(result.audit_logs ?? []);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Could not load audit history."
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-
-    void loadAuditLogs();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-
-  return (
-    <>
-      <PageHeading
-        eyebrow="Activity history"
-        title="Audit log"
-        subtitle="Review recorded database actions and sample status changes."
-      />
-
-      <Panel
-        title="Audit records"
-        caption={`${entries.length} recorded ${
-          entries.length === 1 ? "event" : "events"
-        }`}
-      >
-        {loading && <Notice>Loading audit history...</Notice>}
-
-        {error && <Notice warning>{error}</Notice>}
-
-        {!loading && !error && entries.length === 0 && (
-          <EmptyState
-            title="No audit records available"
-            detail="No audit events have been recorded yet."
-          />
-        )}
-
-        {!loading && !error && entries.length > 0 && (
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Audit ID</th>
-                  <th>Action</th>
-                  <th>Table</th>
-                  <th>Record ID</th>
-                  <th>User ID</th>
-                  <th>Timestamp</th>
-                  <th>Details</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entries.map((entry) => (
-                  <tr key={entry.audit_id}>
-                    <td>{entry.audit_id}</td>
-                    <td>
-                      <Badge tone="info">{entry.action}</Badge>
-                    </td>
-                    <td>{entry.table_name ?? "—"}</td>
-                    <td>{entry.record_id ?? "—"}</td>
-                    <td>{entry.user_id ?? "System / unknown"}</td>
-                    <td>
-                      {new Date(entry.action_timestamp).toLocaleString()}
-                    </td>
-                    <td>
-                      <span style={{ whiteSpace: "pre-wrap" }}>
-                        {entry.details ?? "—"}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
-    </>
-  );
-}
-
-
-

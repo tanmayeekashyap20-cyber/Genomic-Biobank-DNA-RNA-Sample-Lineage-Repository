@@ -1,12 +1,25 @@
-﻿
+
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { pool } from "@/lib/db";
 import {
+  authorizeRequest,
+  experimentScope,
   getAuthenticatedUser,
   hasRole,
   type AllowedRole,
+  type SessionUser,
 } from "@/lib/auth";
+
+const NOT_LINKED_MESSAGE =
+  "Your account is not linked to a researcher record. Ask an administrator to link it.";
+
+// Researchers can only create/edit experiments assigned to themselves.
+function ownResearcherId(user: SessionUser): number | null | "unlinked" {
+  const scope = experimentScope(user);
+  if (scope === null) return null;
+  return scope > 0 ? scope : "unlinked";
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,10 +49,11 @@ async function authorize(
 
 // Fetch experiments with researcher names
 export async function GET(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
-  if (denied) return denied;
+  const auth = await authorizeRequest(request, ["Admin", "Researcher", "Lab Technician"]);
+  if (auth.response) return auth.response;
 
   try {
+    const scope = experimentScope(auth.user);
     const result = await pool.query(`
       SELECT
         e.experiment_id,
@@ -54,9 +68,10 @@ export async function GET(request: NextRequest) {
       FROM public.experiment AS e
       JOIN public.researcher AS r
         ON r.researcher_id = e.researcher_id
+      WHERE ($1::bigint IS NULL OR e.researcher_id = $1)
       ORDER BY e.experiment_id
       LIMIT 100
-    `);
+    `, [scope]);
 
     return NextResponse.json({
       success: true,
@@ -95,8 +110,16 @@ const createExperimentSchema = z.object({
 
 // Create an experiment
 export async function POST(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
-  if (denied) return denied;
+  const auth = await authorizeRequest(request, ["Admin", "Researcher", "Lab Technician"]);
+  if (auth.response) return auth.response;
+
+  const own = ownResearcherId(auth.user);
+  if (own === "unlinked") {
+    return NextResponse.json(
+      { success: false, message: NOT_LINKED_MESSAGE },
+      { status: 403 }
+    );
+  }
 
   try {
     const body: unknown = await request.json();
@@ -133,7 +156,7 @@ export async function POST(request: NextRequest) {
         experiment_type ?? null,
         start_date ?? null,
         end_date ?? null,
-        researcher_id,
+        own ?? researcher_id,
         status ?? null,
         description ?? null,
       ]
@@ -189,8 +212,16 @@ const updateExperimentSchema = z.object({
 
 // Update experiment
 export async function PATCH(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
-  if (denied) return denied;
+  const auth = await authorizeRequest(request, ["Admin", "Researcher", "Lab Technician"]);
+  if (auth.response) return auth.response;
+
+  const own = ownResearcherId(auth.user);
+  if (own === "unlinked") {
+    return NextResponse.json(
+      { success: false, message: NOT_LINKED_MESSAGE },
+      { status: 403 }
+    );
+  }
 
   try {
     const experimentId = Number(
@@ -228,6 +259,13 @@ export async function PATCH(request: NextRequest) {
       description,
     } = parsed.data;
 
+    if (own !== null && researcher_id !== undefined && researcher_id !== own) {
+      return NextResponse.json(
+        { success: false, message: "You cannot reassign an experiment to another researcher." },
+        { status: 403 }
+      );
+    }
+
     const result = await pool.query(
       `UPDATE public.experiment
        SET
@@ -239,6 +277,7 @@ export async function PATCH(request: NextRequest) {
          status = COALESCE($9, status),
          description = CASE WHEN $10 THEN $11 ELSE description END
        WHERE experiment_id = $12
+         AND ($13::bigint IS NULL OR researcher_id = $13)
        RETURNING *`,
       [
         experiment_name ?? null,
@@ -253,6 +292,7 @@ export async function PATCH(request: NextRequest) {
         description !== undefined,
         description ?? null,
         experimentId,
+        own,
       ]
     );
 

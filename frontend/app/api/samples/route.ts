@@ -33,7 +33,7 @@ async function authorize(
 
 // Fetch samples with storage and lineage details
 export async function GET(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
+  const denied = await authorize(request, ["Admin", "Researcher", "Lab Technician"]);
   if (denied) return denied;
 
   try {
@@ -132,7 +132,7 @@ const createSampleSchema = z.object({
 
 // Create a sample
 export async function POST(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
+  const denied = await authorize(request, ["Admin", "Researcher", "Lab Technician"]);
   if (denied) return denied;
 
   try {
@@ -210,7 +210,7 @@ const updateSampleSchema = z.object({
 
 // Update a sample
 export async function PATCH(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
+  const denied = await authorize(request, ["Admin", "Researcher", "Lab Technician"]);
   if (denied) return denied;
 
   try {

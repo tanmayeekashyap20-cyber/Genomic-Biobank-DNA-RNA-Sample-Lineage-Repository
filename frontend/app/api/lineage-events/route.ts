@@ -1,14 +1,11 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { ObjectId } from "mongodb";
-import clientPromise from "@/src/lib/mongodb";
 import { pool } from "@/lib/db";
 import { getAuthenticatedUser, hasRole } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const collectionName = "lineage_events";
 
 async function authorize(request: NextRequest) {
   const user = await getAuthenticatedUser(request);
@@ -23,7 +20,7 @@ async function authorize(request: NextRequest) {
     };
   }
 
-  if (!hasRole(user, ["Admin", "Researcher"])) {
+  if (!hasRole(user, ["Admin", "Researcher", "Lab Technician"])) {
     return {
       user: null,
       response: NextResponse.json(
@@ -52,7 +49,10 @@ const lineageEventSchema = z.object({
   eventDate: z.string().datetime({ offset: true }).optional(),
 });
 
-function parsePositiveInteger(value: string | null, fallback: number) {
+function parsePositiveInteger(
+  value: string | null,
+  fallback: number
+): number | null {
   if (value === null) return fallback;
 
   const parsed = Number(value);
@@ -64,6 +64,7 @@ function parsePositiveInteger(value: string | null, fallback: number) {
   return parsed;
 }
 
+// Fetch lineage events from PostgreSQL.
 export async function GET(request: NextRequest) {
   const auth = await authorize(request);
   if (auth.response) return auth.response;
@@ -82,48 +83,57 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    let sampleId: number | null | undefined;
+    let sampleId: number | undefined;
 
     if (sampleIdValue !== null) {
-      sampleId = parsePositiveInteger(sampleIdValue, 0);
+      const parsedSampleId = parsePositiveInteger(sampleIdValue, 0);
 
-      if (sampleId === null || sampleId < 1) {
+      if (parsedSampleId === null || parsedSampleId < 1) {
         return NextResponse.json(
           { success: false, message: "Invalid sampleId." },
           { status: 400 }
         );
       }
+
+      sampleId = parsedSampleId;
     }
 
-    const client = await clientPromise;
-    const collection = client
-      .db("genomic_biobank")
-      .collection(collectionName);
+    const values: number[] = [];
+    let whereClause = "";
 
-    const filter = sampleId === undefined ? {} : { sampleId };
+    if (sampleId !== undefined) {
+      values.push(sampleId);
+      whereClause = "WHERE sample_id = $1";
+    }
 
-    const [events, total] = await Promise.all([
-      collection
-        .find(filter)
-        .sort({ eventDate: -1, createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .toArray(),
-      collection.countDocuments(filter),
-    ]);
+    const countResult = await pool.query(
+      `SELECT COUNT(*)::int AS total
+       FROM public.sample_lineage
+       ${whereClause}`,
+      values
+    );
+
+    const paginationValues = [...values, limit, skip];
+    const limitPosition = values.length + 1;
+    const offsetPosition = values.length + 2;
+
+    const eventsResult = await pool.query(
+      `SELECT *
+       FROM public.sample_lineage
+       ${whereClause}
+       ORDER BY created_at DESC
+       LIMIT $${limitPosition}
+       OFFSET $${offsetPosition}`,
+      paginationValues
+    );
 
     return NextResponse.json({
       success: true,
-      count: events.length,
-      total,
+      count: eventsResult.rows.length,
+      total: countResult.rows[0].total,
       limit,
       skip,
-      events: events.map((event) => ({
-        ...event,
-        _id: event._id instanceof ObjectId
-          ? event._id.toString()
-          : event._id,
-      })),
+      events: eventsResult.rows,
     });
   } catch (error) {
     console.error("Failed to fetch lineage events:", error);
@@ -135,6 +145,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// Create a lineage event in PostgreSQL.
 export async function POST(request: NextRequest) {
   const auth = await authorize(request);
   if (auth.response) return auth.response;
@@ -179,35 +190,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const client = await clientPromise;
-    const collection = client
-      .db("genomic_biobank")
-      .collection(collectionName);
-
-    const now = new Date();
-
-    const event = {
-      ...parsed.data,
-      performedBy: auth.user!.username,
-      performedByUserId: auth.user!.userId,
-      eventDate: parsed.data.eventDate
-        ? new Date(parsed.data.eventDate)
-        : now,
-      createdAt: now,
-    };
-
-    const result = await collection.insertOne(event);
-
     return NextResponse.json(
       {
-        success: true,
-        message: "Lineage event saved.",
-        event: {
-          ...event,
-          _id: result.insertedId.toString(),
-        },
+        success: false,
+        message:
+          "The existing sample_lineage table requires parent/child sample relationships. The event cannot be stored until its schema is mapped.",
       },
-      { status: 201 }
+      { status: 501 }
     );
   } catch (error) {
     console.error("Failed to save lineage event:", error);
@@ -218,4 +207,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

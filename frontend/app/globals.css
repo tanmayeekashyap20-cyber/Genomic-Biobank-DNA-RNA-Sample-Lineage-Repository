@@ -135,6 +135,8 @@ tbody tr:hover { background: #fbfdfd; }
 .login-main { display: grid; place-items: center; padding: 32px; }
 .login-form { width: min(100%, 390px); }
 .login-form h2 { margin: 0; color: var(--navy); font-size: 23px; }
+.auth-switch { margin: 16px 0 0; color: #5d727b; font-size: 12px; text-align: center; }
+.link-button { padding: 0; border: 0; background: none; color: var(--teal); font: inherit; font-weight: 700; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .demo-roles { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 18px; }
 .role-choice { padding: 12px; border: 1px solid var(--line); border-radius: 5px; background: white; color: #4b6069; text-align: left; }
 .role-choice.selected { border-color: var(--teal); background: #f2faf8; }

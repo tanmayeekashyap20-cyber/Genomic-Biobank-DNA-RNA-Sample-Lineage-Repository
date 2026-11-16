@@ -7,8 +7,9 @@ import { getAuthenticatedUser, hasRole, type AllowedRole } from "@/lib/auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const READ_WRITE_ROLES: AllowedRole[] = ["Admin", "Researcher"];
+const READ_ROLES: AllowedRole[] = ["Admin", "Researcher", "Lab Technician"];
 const ADMIN_ONLY: AllowedRole[] = ["Admin"];
+const STORAGE_WRITE_ROLES: AllowedRole[] = ["Admin", "Lab Technician"];
 
 async function authorize(
   request: NextRequest,
@@ -35,7 +36,7 @@ async function authorize(
 
 // Fetch sample storage assignments and history
 export async function GET(request: NextRequest) {
-  const denied = await authorize(request, READ_WRITE_ROLES);
+  const denied = await authorize(request, READ_ROLES);
   if (denied) return denied;
 
   try {
@@ -85,7 +86,7 @@ const createSampleStorageSchema = z.object({
 
 // Assign a sample to a storage location
 export async function POST(request: NextRequest) {
-  const denied = await authorize(request, READ_WRITE_ROLES);
+  const denied = await authorize(request, STORAGE_WRITE_ROLES);
   if (denied) return denied;
 
   const client = await pool.connect();
@@ -211,7 +212,7 @@ const removeSampleStorageSchema = z.object({
 
 // Record sample removal using /api/sample-storage?id=1
 export async function PATCH(request: NextRequest) {
-  const denied = await authorize(request, READ_WRITE_ROLES);
+  const denied = await authorize(request, STORAGE_WRITE_ROLES);
   if (denied) return denied;
 
   const client = await pool.connect();

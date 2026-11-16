@@ -1,5 +1,5 @@
 
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { SignJWT, jwtVerify } from "jose";
 import { pool } from "@/lib/db";
 
@@ -139,3 +139,46 @@ export const sessionCookieOptions = {
   path: "/",
   maxAge: SESSION_DURATION_SECONDS,
 };
+
+// Authenticate and check roles in one step, returning the user so routes
+// can apply per-user rules (e.g. researchers only see their experiments).
+export async function authorizeRequest(
+  request: NextRequest,
+  allowedRoles: AllowedRole[]
+): Promise<
+  | { user: SessionUser; response: null }
+  | { user: null; response: NextResponse }
+> {
+  const user = await getAuthenticatedUser(request);
+
+  if (!user) {
+    return {
+      user: null,
+      response: NextResponse.json(
+        { success: false, message: "Authentication required." },
+        { status: 401 }
+      ),
+    };
+  }
+
+  if (!hasRole(user, allowedRoles)) {
+    return {
+      user: null,
+      response: NextResponse.json(
+        { success: false, message: "You do not have permission for this action." },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return { user, response: null };
+}
+
+// Researchers work with "My experiments" only: returns the researcher_id
+// to filter experiments by, or null when the user may see all of them.
+// A Researcher account not linked to a researcher record gets 0, which
+// matches nothing.
+export function experimentScope(user: SessionUser): number | null {
+  if (user.role !== "Researcher") return null;
+  return user.researcherId ?? 0;
+}

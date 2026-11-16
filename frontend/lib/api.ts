@@ -1,4 +1,5 @@
-﻿export async function requestApi<T>(
+
+export async function requestApi<T>(
   path: string,
   init?: RequestInit
 ): Promise<T> {

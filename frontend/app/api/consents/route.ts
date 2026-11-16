@@ -40,7 +40,7 @@ async function authorize(
 
 // Fetch consent records
 export async function GET(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
+  const denied = await authorize(request, ["Admin", "Researcher", "Lab Technician"]);
   if (denied) return denied;
 
   try {
@@ -95,7 +95,7 @@ const createConsentSchema = z.object({
 
 // Create a consent record
 export async function POST(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
+  const denied = await authorize(request, ["Admin", "Researcher", "Lab Technician"]);
   if (denied) return denied;
 
   try {
@@ -185,7 +185,7 @@ const updateConsentSchema = z.object({
 
 // Update a consent record using /api/consents?id=1
 export async function PATCH(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
+  const denied = await authorize(request, ["Admin", "Researcher", "Lab Technician"]);
   if (denied) return denied;
 
   try {

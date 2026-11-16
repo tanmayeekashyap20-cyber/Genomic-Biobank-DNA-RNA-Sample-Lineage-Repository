@@ -1,4 +1,4 @@
-﻿-- ============================================================
+-- ============================================================
 -- Genomic Biobank & DNA/RNA Sample Lineage Repository
 -- Fictional test data for academic development and testing.
 -- Run only after schema.sql has been restored into a fresh DB.

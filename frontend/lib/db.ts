@@ -2,6 +2,10 @@
 import { Pool } from "pg";
 
 const connectionString = process.env.DATABASE_URL;
+console.log(
+  "POSTGRES HOST:",
+  connectionString ? new URL(connectionString).hostname : "MISSING"
+);
 
 if (!connectionString) {
   throw new Error("DATABASE_URL is missing. Check frontend/.env.local.");

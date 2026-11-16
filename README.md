@@ -1,4 +1,4 @@
-﻿# Genomic Biobank & DNA/RNA Sample Lineage Repository
+# Genomic Biobank & DNA/RNA Sample Lineage Repository
 
 ## Project Overview
 
@@ -23,28 +23,59 @@ This is an academic project. Any sample and donor records used for testing shoul
 
 ## PostgreSQL Setup
 
+### Which server?
+
+The app connects to the server in `DATABASE_URL` (`frontend/.env.local`),
+which is the **Windows PostgreSQL service** (`postgresql-x64-18`) on
+`127.0.0.1:5432`. Do **not** load the schema with `psql` inside WSL/Ubuntu:
+WSL runs its own, separate PostgreSQL, and tables created there are never
+visible to the app.
+
 ### Files
 
-- `sql/schema.sql` contains the exported PostgreSQL schema.
-- `sql/sample_data.sql` contains fictional test records.
+- `sql/schema.sql`: PostgreSQL schema (portable, no extensions required)
+- `sql/sample_data.sql`: fictional test records
+- `sql/advanced_features.sql`: audit trigger and index (safe to re-run)
+- `sql/migrations/*.sql`: incremental, re-runnable schema changes applied
+  by `npm run db:setup` in filename order (e.g. `001_user_approval.sql`
+  adds the self-registration approval workflow)
 
-### Restore the schema
+### Registration and approval
 
-Create a fresh, empty database named `genomic_biobank_test` before restoring the schema. The PostgreSQL `vector` extension must be installed on the server.
+Visitors can request an account from the login page ("Create an account"),
+choosing **Researcher** or **Lab Technician**. New accounts are stored as
+*pending* and cannot sign in until an Admin approves them under
+**User & role management → Pending registrations**, where the Admin can
+also change the granted role or reject the request.
 
-From the Ubuntu/WSL terminal, run:
+### Configure
+
+Copy `frontend/.env.example` to `frontend/.env.local` and fill in
+`DATABASE_URL`, `AUTH_SECRET` (32+ characters) and `MONGODB_URI`.
+
+### Create the database, schema and sample data
+
+From `frontend/`:
 
 ```bash
-createdb -U postgres genomic_biobank_test
-psql -U postgres -d genomic_biobank_test -f /mnt/c/Users/DELL/Documents/Genomic-Biobank-DNA-RNA-Sample-Lineage-Repository/sql/schema.sql
+npm run db:setup                   # creates DB/schema/sample data if missing; idempotent
+npm run db:setup -- --reset        # DROPS all tables and rebuilds them from scratch
+npm run db:setup -- --no-sample-data
 ```
 
-### Load fictional test data
+The script prints the host, port and server version it connected to, so you
+can confirm it is the same server the app uses.
 
-Only after the schema has been restored successfully, run:
+To also create a loginable Admin account, set `SEED_ADMIN_EMAIL` and
+`SEED_ADMIN_PASSWORD` (and optionally `SEED_ADMIN_USERNAME`) in
+`.env.local` before running `npm run db:setup`. The `aarav_test` user in
+`sample_data.sql` has a placeholder password hash and cannot log in.
+
+Manual alternative (Windows `psql`, run in this order):
 
 ```bash
-psql -U postgres -d genomic_biobank_test -f /mnt/c/Users/DELL/Documents/Genomic-Biobank-DNA-RNA-Sample-Lineage-Repository/sql/sample_data.sql
+psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE genomic_biobank_test"
+psql -h 127.0.0.1 -U postgres -d genomic_biobank_test -f sql/schema.sql
+psql -h 127.0.0.1 -U postgres -d genomic_biobank_test -f sql/sample_data.sql
+psql -h 127.0.0.1 -U postgres -d genomic_biobank_test -f sql/advanced_features.sql
 ```
-
-**Important:** These instructions are for a fresh test database, not the existing working database. The sample data assumes identity IDs start at 1, and should not be loaded repeatedly into the same database. The password field is a placeholder, and the sequencing file path is illustrative.

@@ -66,7 +66,7 @@ async function createsCycle(
 
 // GET: Fetch all sample lineage records
 export async function GET(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
+  const denied = await authorize(request, ["Admin", "Researcher", "Lab Technician"]);
   if (denied) return denied;
 
   try {
@@ -120,7 +120,7 @@ const createLineageSchema = z.object({
 
 // POST: Create a sample lineage relationship
 export async function POST(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
+  const denied = await authorize(request, ["Admin", "Researcher", "Lab Technician"]);
   if (denied) return denied;
 
   try {
@@ -238,7 +238,7 @@ const updateLineageSchema = z.object({
 
 // PATCH: Update a lineage record using ?id=1
 export async function PATCH(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
+  const denied = await authorize(request, ["Admin", "Researcher", "Lab Technician"]);
   if (denied) return denied;
 
   try {

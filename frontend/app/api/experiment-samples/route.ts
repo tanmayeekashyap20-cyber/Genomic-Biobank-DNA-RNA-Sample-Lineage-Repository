@@ -2,7 +2,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { pool } from "@/lib/db";
-import { getAuthenticatedUser, hasRole, type AllowedRole } from "@/lib/auth";
+import {
+  authorizeRequest,
+  experimentScope,
+  getAuthenticatedUser,
+  hasRole,
+  type AllowedRole,
+} from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,10 +42,11 @@ async function authorize(
 
 // GET: Fetch experiment-sample associations
 export async function GET(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
-  if (denied) return denied;
+  const auth = await authorizeRequest(request, ["Admin", "Researcher", "Lab Technician"]);
+  if (auth.response) return auth.response;
 
   try {
+    const scope = experimentScope(auth.user);
     const result = await pool.query(`
       SELECT
         es.experiment_sample_id,
@@ -54,9 +61,10 @@ export async function GET(request: NextRequest) {
         ON es.experiment_id = e.experiment_id
       JOIN public.sample s
         ON es.sample_id = s.sample_id
+      WHERE ($1::bigint IS NULL OR e.researcher_id = $1)
       ORDER BY es.experiment_sample_id
       LIMIT 100
-    `);
+    `, [scope]);
 
     return NextResponse.json({
       success: true,
@@ -89,8 +97,9 @@ const createExperimentSampleSchema = z.object({
 
 // POST: Add a sample to an experiment
 export async function POST(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
-  if (denied) return denied;
+  const auth = await authorizeRequest(request, ["Admin", "Researcher", "Lab Technician"]);
+  if (auth.response) return auth.response;
+  const scope = experimentScope(auth.user);
 
   try {
     const body: unknown = await request.json();
@@ -112,6 +121,20 @@ export async function POST(request: NextRequest) {
       date_added,
       notes,
     } = parsed.data;
+
+    // Researchers may only add samples to their own experiments.
+    if (scope !== null) {
+      const owned = await pool.query(
+        "SELECT 1 FROM public.experiment WHERE experiment_id = $1 AND researcher_id = $2",
+        [experiment_id, scope]
+      );
+      if (owned.rowCount === 0) {
+        return NextResponse.json(
+          { success: false, message: "You can only add samples to your own experiments." },
+          { status: 403 }
+        );
+      }
+    }
 
     const result = await pool.query(
       `INSERT INTO public.experiment_sample
@@ -193,8 +216,9 @@ const updateExperimentSampleSchema = z.object({
 
 // PATCH: Update an experiment-sample association
 export async function PATCH(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
-  if (denied) return denied;
+  const auth = await authorizeRequest(request, ["Admin", "Researcher", "Lab Technician"]);
+  if (auth.response) return auth.response;
+  const scope = experimentScope(auth.user);
 
   try {
     const associationId = Number(
@@ -233,12 +257,18 @@ export async function PATCH(request: NextRequest) {
          date_added = COALESCE($1::date, date_added),
          notes = CASE WHEN $2 THEN $3 ELSE notes END
        WHERE experiment_sample_id = $4
+         AND (
+           $5::bigint IS NULL OR experiment_id IN (
+             SELECT experiment_id FROM public.experiment WHERE researcher_id = $5
+           )
+         )
        RETURNING *`,
       [
         date_added ?? null,
         notes !== undefined,
         notes ?? null,
         associationId,
+        scope,
       ]
     );
 

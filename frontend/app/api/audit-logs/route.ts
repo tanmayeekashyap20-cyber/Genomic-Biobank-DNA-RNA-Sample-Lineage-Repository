@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { getAuthenticatedUser, hasRole } from "@/lib/auth";
 
@@ -15,9 +15,9 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  if (!hasRole(user, ["Admin"])) {
+  if (!hasRole(user, ["Admin", "Lab Technician"])) {
     return NextResponse.json(
-      { success: false, message: "Administrator access is required." },
+      { success: false, message: "You do not have permission to view audit history." },
       { status: 403 }
     );
   }

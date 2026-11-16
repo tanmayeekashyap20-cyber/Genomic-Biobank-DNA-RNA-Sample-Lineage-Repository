@@ -1,87 +1,83 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { pool } from "@/lib/db";
-import { getAuthenticatedUser, hasRole } from "@/lib/auth";
+import { authorizeRequest, experimentScope } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const experimentSchema = z.object({
+const createExperimentRecordSchema = z.object({
   experiment_name: z.string().trim().min(1).max(150),
-  experiment_type: z.string().trim().min(1).max(100),
-  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  experiment_type: z.string().trim().max(100).nullable().optional(),
+  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   researcher_id: z.number().int().positive(),
-  status: z.enum(["planned", "in_progress", "completed", "on_hold"]),
-  description: z.string().trim().max(2000).nullable().optional(),
+  status: z.string().trim().min(1).max(30).optional(),
+  description: z.string().nullable().optional(),
   sample_id: z.number().int().positive(),
-  date_added: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  notes: z.string().trim().max(2000).nullable().optional(),
+  date_added: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  notes: z.string().nullable().optional(),
 }).refine(
-  (data) => !data.end_date || data.end_date >= data.start_date,
+  (data) =>
+    !data.start_date ||
+    !data.end_date ||
+    data.end_date >= data.start_date,
   {
     message: "End date cannot be earlier than start date.",
     path: ["end_date"],
-  }
+  },
 );
 
 export async function POST(request: NextRequest) {
-  const user = await getAuthenticatedUser(request);
+  const auth = await authorizeRequest(request, ["Admin", "Researcher", "Lab Technician"]);
+  if (auth.response) return auth.response;
 
-  if (!user) {
-    return NextResponse.json(
-      { success: false, message: "Authentication required." },
-      { status: 401 }
-    );
-  }
-
-  if (!hasRole(user, ["Admin", "Researcher"])) {
-    return NextResponse.json(
-      { success: false, message: "You do not have permission to perform this action." },
-      { status: 403 }
-    );
-  }
-
-  let body: unknown;
-
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { success: false, message: "Invalid JSON request body." },
-      { status: 400 }
-    );
-  }
-
-  const parsed = experimentSchema.safeParse(body);
-
-  if (!parsed.success) {
+  // Researchers can only create experiments assigned to themselves.
+  const scope = experimentScope(auth.user);
+  if (scope === 0) {
     return NextResponse.json(
       {
         success: false,
-        message: "Invalid experiment data.",
-        errors: parsed.error.flatten().fieldErrors,
+        message:
+          "Your account is not linked to a researcher record. Ask an administrator to link it.",
       },
-      { status: 400 }
+      { status: 403 },
     );
   }
 
-  const {
-    experiment_name,
-    experiment_type,
-    start_date,
-    end_date,
-    researcher_id,
-    status,
-    description,
-    sample_id,
-    date_added,
-    notes,
-  } = parsed.data;
-
-  const client = await pool.connect();
+  let client;
 
   try {
+    const body: unknown = await request.json();
+    const parsed = createExperimentRecordSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Invalid experiment data.",
+          errors: parsed.error.flatten().fieldErrors,
+        },
+        { status: 400 },
+      );
+    }
+
+    const {
+      experiment_name,
+      experiment_type,
+      start_date,
+      end_date,
+      researcher_id,
+      status,
+      description,
+      sample_id,
+      date_added,
+      notes,
+    } = parsed.data;
+
+    client = await pool.connect();
+
     await client.query("BEGIN");
 
     const experimentResult = await client.query(
@@ -95,32 +91,37 @@ export async function POST(request: NextRequest) {
           status,
           description
         )
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'planned'), $7)
        RETURNING *`,
       [
         experiment_name,
-        experiment_type,
-        start_date,
+        experiment_type ?? null,
+        start_date ?? null,
         end_date ?? null,
-        researcher_id,
-        status,
+        scope ?? researcher_id,
+        status ?? null,
         description ?? null,
-      ]
+      ],
     );
 
     const experiment = experimentResult.rows[0];
 
     const associationResult = await client.query(
       `INSERT INTO public.experiment_sample
-        (experiment_id, sample_id, date_added, notes)
-       VALUES ($1, $2, $3, $4)
+        (
+          experiment_id,
+          sample_id,
+          date_added,
+          notes
+        )
+       VALUES ($1, $2, COALESCE($3::date, CURRENT_DATE), $4)
        RETURNING *`,
       [
         experiment.experiment_id,
         sample_id,
-        date_added,
+        date_added ?? null,
         notes ?? null,
-      ]
+      ],
     );
 
     await client.query("COMMIT");
@@ -132,12 +133,18 @@ export async function POST(request: NextRequest) {
         experiment,
         experiment_sample: associationResult.rows[0],
       },
-      { status: 201 }
+      { status: 201 },
     );
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (client) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError) {
+        console.error("Experiment transaction rollback failed:", rollbackError);
+      }
+    }
 
-    console.error("Failed to create experiment:", error);
+    console.error("Failed to create experiment record:", error);
 
     const dbError = error as { code?: string };
 
@@ -147,7 +154,17 @@ export async function POST(request: NextRequest) {
           success: false,
           message: "The specified researcher or sample does not exist.",
         },
-        { status: 400 }
+        { status: 400 },
+      );
+    }
+
+    if (dbError.code === "23505") {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "This sample is already associated with this experiment.",
+        },
+        { status: 409 },
       );
     }
 
@@ -155,17 +172,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message: "The experiment data violates a database constraint.",
+          message: "The experiment dates are invalid.",
         },
-        { status: 400 }
+        { status: 400 },
+      );
+    }
+
+    if (dbError.code === "22007" || dbError.code === "22008") {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "An invalid date was provided.",
+        },
+        { status: 400 },
       );
     }
 
     return NextResponse.json(
-      { success: false, message: "Could not create the experiment." },
-      { status: 500 }
+      {
+        success: false,
+        message: "Could not create the experiment record.",
+      },
+      { status: 500 },
     );
   } finally {
-    client.release();
+    client?.release();
   }
 }

@@ -1,16 +1,44 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { pool } from "@/lib/db";
-import { getAuthenticatedUser, hasRole } from "@/lib/auth";
+import {
+  getAuthenticatedUser,
+  hasRole,
+  type AllowedRole,
+} from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const processingEventSchema = z.object({
+async function authorize(
+  request: NextRequest,
+  allowedRoles: AllowedRole[],
+) {
+  const user = await getAuthenticatedUser(request);
+
+  if (!user) {
+    return NextResponse.json(
+      { success: false, message: "Authentication required." },
+      { status: 401 },
+    );
+  }
+
+  if (!hasRole(user, allowedRoles)) {
+    return NextResponse.json(
+      { success: false, message: "You do not have permission." },
+      { status: 403 },
+    );
+  }
+
+  return null;
+}
+
+const processingSchema = z.object({
   process_type: z.string().trim().min(1).max(100),
   process_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   performed_by: z.number().int().positive(),
-  description: z.string().trim().max(2000).nullable().optional(),
+  description: z.string().trim().nullable().optional(),
   input_sample_id: z.number().int().positive(),
   output_sample_id: z.number().int().positive(),
   quantity: z.number().min(0).max(999999999.999).nullable().optional(),
@@ -20,64 +48,34 @@ const processingEventSchema = z.object({
   {
     message: "Input and output samples must be different.",
     path: ["output_sample_id"],
-  }
+  },
 );
 
 export async function POST(request: NextRequest) {
-  const user = await getAuthenticatedUser(request);
+  const denied = await authorize(request, ["Admin", "Researcher", "Lab Technician"]);
+  if (denied) return denied;
 
-  if (!user) {
-    return NextResponse.json(
-      { success: false, message: "Authentication required." },
-      { status: 401 }
-    );
-  }
-
-  if (!hasRole(user, ["Admin", "Researcher"])) {
-    return NextResponse.json(
-      { success: false, message: "You do not have permission to perform this action." },
-      { status: 403 }
-    );
-  }
-
-  let body: unknown;
+  let client;
 
   try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { success: false, message: "Invalid JSON request body." },
-      { status: 400 }
-    );
-  }
+    const body: unknown = await request.json();
+    const parsed = processingSchema.safeParse(body);
 
-  const parsed = processingEventSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Invalid processing information.",
+          errors: parsed.error.flatten().fieldErrors,
+        },
+        { status: 400 },
+      );
+    }
 
-  if (!parsed.success) {
-    return NextResponse.json(
-      {
-        success: false,
-        message: "Invalid processing event data.",
-        errors: parsed.error.flatten().fieldErrors,
-      },
-      { status: 400 }
-    );
-  }
+    const values = parsed.data;
 
-  const {
-    process_type,
-    process_date,
-    performed_by,
-    description,
-    input_sample_id,
-    output_sample_id,
-    quantity,
-    unit,
-  } = parsed.data;
+    client = await pool.connect();
 
-  const client = await pool.connect();
-
-  try {
     await client.query("BEGIN");
 
     const processResult = await client.query(
@@ -86,11 +84,11 @@ export async function POST(request: NextRequest) {
        VALUES ($1, $2, $3, $4)
        RETURNING *`,
       [
-        process_type,
-        process_date,
-        performed_by,
-        description ?? null,
-      ]
+        values.process_type,
+        values.process_date,
+        values.performed_by,
+        values.description ?? null,
+      ],
     );
 
     const process = processResult.rows[0];
@@ -102,11 +100,11 @@ export async function POST(request: NextRequest) {
        RETURNING *`,
       [
         process.process_id,
-        input_sample_id,
-        output_sample_id,
-        quantity ?? null,
-        unit ?? null,
-      ]
+        values.input_sample_id,
+        values.output_sample_id,
+        values.quantity ?? null,
+        values.unit ?? null,
+      ],
     );
 
     await client.query("COMMIT");
@@ -118,10 +116,12 @@ export async function POST(request: NextRequest) {
         process,
         sample_process: sampleProcessResult.rows[0],
       },
-      { status: 201 }
+      { status: 201 },
     );
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (client) {
+      await client.query("ROLLBACK").catch(() => undefined);
+    }
 
     console.error("Failed to create processing event:", error);
 
@@ -131,9 +131,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message: "The specified researcher, process, or sample does not exist.",
+          message: "The specified researcher or sample does not exist.",
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -141,17 +141,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message: "The input and output samples must differ, and quantity cannot be negative.",
+          message: "Input and output samples must differ, and quantity cannot be negative.",
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     return NextResponse.json(
-      { success: false, message: "Could not save the processing event." },
-      { status: 500 }
+      { success: false, message: "Could not create processing event." },
+      { status: 500 },
     );
   } finally {
-    client.release();
+    client?.release();
   }
 }

@@ -1,4 +1,4 @@
-﻿export type UserRole = "Administrator" | "Researcher" | "Lab Technician";
+export type UserRole = "Administrator" | "Researcher" | "Lab Technician";
 export type SampleType = "DNA" | "RNA" | "Other";
 export type SampleStatus = "Available" | "Processing" | "Archived" | "Depleted";
 
@@ -96,12 +96,12 @@ export interface DatabaseSample {
     direction: "parent";
   }[] | null;
 }
+
 export interface DatabaseDonor {
   donor_id: string;
   full_name: string;
-  registration_date: string;
-  consent_status: string | null;
 }
+
 /* PostgreSQL-backed record types */
 
 export interface DatabaseConsent {
@@ -192,7 +192,4 @@ export interface DatabaseSampleStorage {
   temperature: number | null;
   storage_status: string;
 }
-
-
-
 

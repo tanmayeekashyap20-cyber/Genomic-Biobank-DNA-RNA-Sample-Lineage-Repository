@@ -36,7 +36,7 @@ async function authorize(
 
 // Fetch storage units
 export async function GET(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
+  const denied = await authorize(request, ["Admin", "Researcher", "Lab Technician"]);
   if (denied) return denied;
 
   try {
@@ -81,7 +81,7 @@ const createStorageUnitSchema = z.object({
 
 // Create a storage unit
 export async function POST(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
+  const denied = await authorize(request, ["Admin", "Lab Technician"]);
   if (denied) return denied;
 
   try {
@@ -155,7 +155,7 @@ const updateStorageUnitSchema = z.object({
 
 // Update storage unit using /api/storage-units?id=1
 export async function PATCH(request: NextRequest) {
-  const denied = await authorize(request, ["Admin", "Researcher"]);
+  const denied = await authorize(request, ["Admin", "Lab Technician"]);
   if (denied) return denied;
 
   try {

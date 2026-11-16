@@ -1,8 +1,10 @@
 --
 -- PostgreSQL database dump
 --
-
-\restrict 1m6CGpeS7b9R68c1vaJsLjNv7L8Ol1Ad9d96CLmGErUaiXy1s0hyAMWTHPSSG2P
+-- Portable schema: the unused pgvector extension and the pg_dump
+-- restrict/unrestrict guards were removed so this file loads on any PostgreSQL
+-- 13+ server (including the Windows installer build) and in pgAdmin.
+--
 
 -- Dumped from database version 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)
 -- Dumped by pg_dump version 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)
@@ -17,20 +19,6 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
-
---
--- Name: vector; Type: EXTENSION; Schema: -; Owner: -
---
-
-CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
-
-
---
--- Name: EXTENSION vector; Type: COMMENT; Schema: -; Owner: -
---
-
-COMMENT ON EXTENSION vector IS 'vector data type and ivfflat and hnsw access methods';
-
 
 SET default_tablespace = '';
 
@@ -833,5 +821,4 @@ ALTER TABLE ONLY public.sequencing_result
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 1m6CGpeS7b9R68c1vaJsLjNv7L8Ol1Ad9d96CLmGErUaiXy1s0hyAMWTHPSSG2P
 

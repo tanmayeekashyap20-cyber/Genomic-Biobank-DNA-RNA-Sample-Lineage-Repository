@@ -1,7 +1,14 @@
-﻿"use client";
+
+"use client";
 
 import { useEffect, useState } from "react";
-import { Activity, Boxes, Dna, FlaskConical, Users } from "lucide-react";
+import {
+  Activity,
+  Boxes,
+  Dna,
+  FlaskConical,
+  Users,
+} from "lucide-react";
 import { Badge, PageHeading, Panel } from "@/components/ui";
 import {
   Area,
@@ -21,33 +28,72 @@ import Link from "next/link";
 
 const colors = ["#168b82", "#6589a0", "#d1a452", "#ba7770"];
 
-type DashboardSample = {
-  sample_id: number | string;
-  sample_type_name: string;
-  collection_date: string;
-  status: string;
-  lineage_available: boolean;
-};
-
 type DashboardData = {
   donors: number;
   samples: number;
   experiments: number;
   sequencing_results: number;
   active_storage_assignments: number;
-  sample_types: { name: string; value: number }[];
-  sample_statuses: { name: string; count: number }[];
-  collection_trend: { month: string; collected: number }[];
-  recent_samples: DashboardSample[];
+  sample_types: {
+    name: string;
+    value: number;
+  }[];
+  sample_statuses: {
+    name: string;
+    count: number;
+  }[];
+  collection_trend: {
+    month: string;
+    collected: number;
+  }[];
+  recent_samples: {
+    sample_id: number | string;
+    sample_type_name: string;
+    collection_date: string;
+    status: string;
+    lineage_available: boolean;
+  }[];
 };
 
+const emptyDashboard: DashboardData = {
+  donors: 0,
+  samples: 0,
+  experiments: 0,
+  sequencing_results: 0,
+  active_storage_assignments: 0,
+  sample_types: [],
+  sample_statuses: [],
+  collection_trend: [],
+  recent_samples: [],
+};
+
+function formatStatus(status: string) {
+  return status
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function getStatusTone(status: string): "success" | "warning" | "" {
+  const normalized = status.toLowerCase();
+
+  if (["available", "collected", "stored", "completed", "processed"].includes(normalized)) {
+    return "success";
+  }
+
+  if (["processing", "in_progress", "pending"].includes(normalized)) {
+    return "warning";
+  }
+
+  return "";
+}
+
 export function Dashboard() {
-  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const [dashboard, setDashboard] = useState<DashboardData>(emptyDashboard);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    let active = true;
+    let cancelled = false;
 
     async function loadDashboard() {
       try {
@@ -55,7 +101,7 @@ export function Dashboard() {
         setError("");
 
         const response = await fetch("/api/dashboard", {
-          method: "GET",
+          credentials: "include",
           cache: "no-store",
         });
 
@@ -63,95 +109,120 @@ export function Dashboard() {
 
         if (!response.ok || !result.success) {
           throw new Error(
-            result.message || "Could not load dashboard information."
+            result.message || "Could not load dashboard information.",
           );
         }
 
-        if (active) {
-          setDashboard(result.dashboard as DashboardData);
+        if (!cancelled) {
+          setDashboard({
+            ...emptyDashboard,
+            ...result.dashboard,
+            sample_types: result.dashboard.sample_types ?? [],
+            sample_statuses: result.dashboard.sample_statuses ?? [],
+            collection_trend: result.dashboard.collection_trend ?? [],
+            recent_samples: result.dashboard.recent_samples ?? [],
+          });
         }
       } catch (err) {
-        if (active) {
+        if (!cancelled) {
           setError(
             err instanceof Error
               ? err.message
-              : "Could not load dashboard information."
+              : "Could not load dashboard information.",
           );
         }
       } finally {
-        if (active) {
+        if (!cancelled) {
           setLoading(false);
         }
       }
     }
 
-    loadDashboard();
+    void loadDashboard();
 
     return () => {
-      active = false;
+      cancelled = true;
     };
   }, []);
 
   const metrics = [
     {
       label: "Donors",
-      value: dashboard?.donors ?? 0,
+      value: dashboard.donors,
       note: "Registered donor records",
       icon: Users,
     },
     {
       label: "Samples",
-      value: dashboard?.samples ?? 0,
+      value: dashboard.samples,
       note: "Registered specimens",
       icon: Dna,
     },
     {
       label: "Experiments",
-      value: dashboard?.experiments ?? 0,
-      note: "Recorded experiments",
+      value: dashboard.experiments,
+      note: "Database experiments",
       icon: FlaskConical,
     },
     {
       label: "Sequencing results",
-      value: dashboard?.sequencing_results ?? 0,
+      value: dashboard.sequencing_results,
       note: "Recorded sequencing results",
       icon: Activity,
     },
     {
       label: "Active storage assignments",
-      value: dashboard?.active_storage_assignments ?? 0,
-      note: "Samples currently assigned to storage",
+      value: dashboard.active_storage_assignments,
+      note: "Currently active sample placements",
       icon: Boxes,
     },
   ];
 
-  const typeData = dashboard?.sample_types ?? [];
-  const statusData = dashboard?.sample_statuses ?? [];
-  const trendData = dashboard?.collection_trend ?? [];
-  const recentSamples = dashboard?.recent_samples ?? [];
+  if (loading) {
+    return (
+      <>
+        <PageHeading
+          eyebrow="Research workspace"
+          title="Repository overview"
+          subtitle="Loading repository information from PostgreSQL."
+        />
+        <div className="panel" style={{ padding: 24 }}>
+          Loading dashboard information...
+        </div>
+      </>
+    );
+  }
+
+  if (error) {
+    return (
+      <>
+        <PageHeading
+          eyebrow="Research workspace"
+          title="Repository overview"
+          subtitle="The dashboard could not retrieve repository information."
+        />
+        <div className="panel" style={{ padding: 24 }}>
+          <p className="field-error" role="alert">{error}</p>
+          <button
+            className="button button-primary"
+            onClick={() => window.location.reload()}
+          >
+            Reload dashboard
+          </button>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
       <PageHeading
         eyebrow="Research workspace"
         title="Repository overview"
-        subtitle="A live summary of records stored in the genomic biobank database."
+        subtitle="A live overview of genomic biobank records stored in PostgreSQL."
       >
-        <span className="badge info">Live PostgreSQL data</span>
+        <span className="badge success">PostgreSQL connected</span>
       </PageHeading>
-
-      {error && (
-        <div className="panel" role="alert">
-          <p>{error}</p>
-          <button
-            className="button"
-            type="button"
-            onClick={() => window.location.reload()}
-          >
-            Reload dashboard
-          </button>
-        </div>
-      )}
 
       <div className="grid metric-grid">
         {metrics.map(({ label, value, note, icon: Icon }) => (
@@ -162,9 +233,11 @@ export function Dashboard() {
                 <Icon size={15} />
               </span>
             </div>
+
             <div className="metric-value">
-              {loading ? "—" : value.toLocaleString()}
+              {Number(value ?? 0).toLocaleString()}
             </div>
+
             <div className="metric-note">{note}</div>
           </div>
         ))}
@@ -173,12 +246,12 @@ export function Dashboard() {
       <div className="grid dashboard-charts">
         <Panel
           title="Sample collection trend"
-          caption="Samples collected during the latest six months"
+          caption="New samples collected over the last six months"
         >
           <div className="chart-wrap">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart
-                data={trendData}
+                data={dashboard.collection_trend}
                 margin={{ top: 10, right: 8, left: -22, bottom: 0 }}
               >
                 <defs>
@@ -189,24 +262,37 @@ export function Dashboard() {
                     x2="0"
                     y2="1"
                   >
-                    <stop offset="0%" stopColor="#168b82" stopOpacity={0.2} />
-                    <stop offset="100%" stopColor="#168b82" stopOpacity={0.01} />
+                    <stop
+                      offset="0%"
+                      stopColor="#168b82"
+                      stopOpacity={0.2}
+                    />
+                    <stop
+                      offset="100%"
+                      stopColor="#168b82"
+                      stopOpacity={0.01}
+                    />
                   </linearGradient>
                 </defs>
+
                 <CartesianGrid stroke="#edf1f1" vertical={false} />
+
                 <XAxis
                   dataKey="month"
                   tickLine={false}
                   axisLine={false}
                   tick={{ fontSize: 10, fill: "#788991" }}
                 />
+
                 <YAxis
                   allowDecimals={false}
                   tickLine={false}
                   axisLine={false}
                   tick={{ fontSize: 10, fill: "#788991" }}
                 />
+
                 <Tooltip />
+
                 <Area
                   type="monotone"
                   dataKey="collected"
@@ -219,26 +305,31 @@ export function Dashboard() {
           </div>
         </Panel>
 
-        <Panel title="Sample types" caption="Current sample inventory">
+        <Panel
+          title="Sample types"
+          caption="Current sample inventory by type"
+        >
           <div className="chart-wrap">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={typeData}
+                  data={dashboard.sample_types}
                   dataKey="value"
                   nameKey="name"
                   innerRadius={48}
                   outerRadius={72}
                   paddingAngle={4}
                 >
-                  {typeData.map((item, index) => (
+                  {dashboard.sample_types.map((item, index) => (
                     <Cell
                       key={item.name}
                       fill={colors[index % colors.length]}
                     />
                   ))}
                 </Pie>
+
                 <Tooltip />
+
                 <text
                   x="50%"
                   y="47%"
@@ -248,8 +339,9 @@ export function Dashboard() {
                   fontSize="20"
                   fontWeight="700"
                 >
-                  {dashboard?.samples ?? 0}
+                  {dashboard.samples}
                 </text>
+
                 <text
                   x="50%"
                   y="59%"
@@ -263,6 +355,7 @@ export function Dashboard() {
               </PieChart>
             </ResponsiveContainer>
           </div>
+
           <div
             style={{
               display: "flex",
@@ -271,7 +364,7 @@ export function Dashboard() {
               flexWrap: "wrap",
             }}
           >
-            {typeData.map((item, index) => (
+            {dashboard.sample_types.map((item, index) => (
               <span
                 key={item.name}
                 style={{ color: "#708189", fontSize: 9 }}
@@ -293,18 +386,27 @@ export function Dashboard() {
         </Panel>
 
         <Panel
-          title="Sample status"
-          caption="Current status of registered samples"
+          title="Processing status"
+          caption="Current state of sample records"
         >
           <div className="chart-wrap">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
-                data={statusData}
+                data={dashboard.sample_statuses}
                 layout="vertical"
                 margin={{ top: 4, right: 8, left: 8, bottom: 0 }}
               >
-                <CartesianGrid stroke="#edf1f1" horizontal={false} />
-                <XAxis type="number" allowDecimals={false} hide />
+                <CartesianGrid
+                  stroke="#edf1f1"
+                  horizontal={false}
+                />
+
+                <XAxis
+                  type="number"
+                  allowDecimals={false}
+                  hide
+                />
+
                 <YAxis
                   type="category"
                   dataKey="name"
@@ -312,14 +414,17 @@ export function Dashboard() {
                   tickLine={false}
                   axisLine={false}
                   tick={{ fontSize: 9, fill: "#647880" }}
+                  tickFormatter={formatStatus}
                 />
+
                 <Tooltip />
+
                 <Bar
                   dataKey="count"
                   radius={[0, 4, 4, 0]}
                   barSize={14}
                 >
-                  {statusData.map((item, index) => (
+                  {dashboard.sample_statuses.map((item, index) => (
                     <Cell
                       key={item.name}
                       fill={colors[index % colors.length]}
@@ -335,7 +440,7 @@ export function Dashboard() {
       <div className="grid dashboard-lower">
         <Panel
           title="Recent samples"
-          caption="Five most recently collected sample records"
+          caption="Latest sample records from PostgreSQL"
           action={
             <Link className="table-link" href="/samples">
               View all
@@ -353,42 +458,44 @@ export function Dashboard() {
                   <th>Lineage</th>
                 </tr>
               </thead>
+
               <tbody>
-                {recentSamples.map((sample) => (
-                  <tr key={sample.sample_id}>
-                    <td>
-                      <Link
-                        className="table-link"
-                        href={`/samples?selected=${sample.sample_id}`}
-                      >
-                        {sample.sample_id}
-                      </Link>
-                    </td>
-                    <td>{sample.sample_type_name}</td>
-                    <td>{String(sample.collection_date).slice(0, 10)}</td>
-                    <td>
-                      <Badge
-                        tone={
-                          sample.status.toLowerCase() === "available"
-                            ? "success"
-                            : sample.status.toLowerCase() === "processing"
-                              ? "warning"
-                              : ""
-                        }
-                      >
-                        {sample.status}
-                      </Badge>
-                    </td>
-                    <td>
-                      {sample.lineage_available
-                        ? "Available"
-                        : "Not recorded"}
-                    </td>
-                  </tr>
-                ))}
-                {!loading && recentSamples.length === 0 && (
+                {dashboard.recent_samples.length > 0 ? (
+                  dashboard.recent_samples.map((sample) => (
+                    <tr key={sample.sample_id}>
+                      <td>
+                        <Link
+                          className="table-link"
+                          href={`/samples?selected=${sample.sample_id}`}
+                        >
+                          {sample.sample_id}
+                        </Link>
+                      </td>
+
+                      <td>{sample.sample_type_name}</td>
+
+                      <td>
+                        {sample.collection_date
+                          ? String(sample.collection_date).slice(0, 10)
+                          : "—"}
+                      </td>
+
+                      <td>
+                        <Badge tone={getStatusTone(sample.status)}>
+                          {formatStatus(sample.status)}
+                        </Badge>
+                      </td>
+
+                      <td>
+                        {sample.lineage_available
+                          ? "Available"
+                          : "Not recorded"}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
                   <tr>
-                    <td colSpan={5}>No sample records found.</td>
+                    <td colSpan={5}>No sample records available.</td>
                   </tr>
                 )}
               </tbody>
@@ -399,9 +506,11 @@ export function Dashboard() {
             <Link className="button button-primary" href="/samples">
               <Dna size={14} /> Register sample
             </Link>
+
             <Link className="button" href="/donors">
               <Users size={14} /> Register donor
             </Link>
+
             <Link className="button" href="/lineage">
               <Activity size={14} /> Explore lineage
             </Link>
@@ -410,43 +519,23 @@ export function Dashboard() {
 
         <Panel
           title="Storage overview"
-          caption="Current sample storage assignments"
+          caption="Active sample storage assignments"
         >
-          <div className="activity-list">
-            <div className="activity-row">
-              <span className="activity-mark">
-                <Boxes size={13} />
-              </span>
-              <div className="activity-copy">
-                Active storage assignments
-                <div className="activity-time">
-                  Samples with a current storage location
-                </div>
-              </div>
-              <strong>
-                {loading
-                  ? "—"
-                  : (
-                      dashboard?.active_storage_assignments ?? 0
-                    ).toLocaleString()}
-              </strong>
+          <div style={{ padding: "20px 0" }}>
+            <div className="metric-value">
+              {dashboard.active_storage_assignments.toLocaleString()}
             </div>
-            <div className="activity-row">
-              <span className="activity-mark">
-                <Activity size={13} />
-              </span>
-              <div className="activity-copy">
-                Storage tracking
-                <div className="activity-time">
-                  Based on records without a removal date
-                </div>
-              </div>
+
+            <p className="metric-note">
+              Samples with an active storage assignment in PostgreSQL.
+            </p>
+
+            <div style={{ marginTop: 20 }}>
+              <Link className="button" href="/storage">
+                View storage records
+              </Link>
             </div>
           </div>
-          <p className="metric-note">
-            Storage capacity is not defined in the current database schema,
-            so a utilization percentage is not displayed.
-          </p>
         </Panel>
       </div>
     </>

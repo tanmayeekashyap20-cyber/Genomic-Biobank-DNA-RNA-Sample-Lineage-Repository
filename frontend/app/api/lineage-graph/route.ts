@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { getAuthenticatedUser, hasRole } from "@/lib/auth";
 
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  if (!hasRole(user, ["Admin", "Researcher"])) {
+  if (!hasRole(user, ["Admin", "Researcher", "Lab Technician"])) {
     return NextResponse.json(
       {
         success: false,
